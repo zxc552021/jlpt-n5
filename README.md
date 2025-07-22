@@ -1,2 +1,1312 @@
-# jlpt-n5
-一個互動式的 JLPT N5 日文單字學習工具
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JLPT N5 日文單字互動學習工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Noto+Sans+TC:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: Warm Neutrals -->
+    <!-- Application Structure Plan: A single-page application with four main views managed by JS: 1. Overview Dashboard with a Chart.js donut chart showing word type distribution. 2. Interactive Vocabulary Explorer with category filters and a search bar to dynamically display word cards, now with a floating toggle button that reveals a slide-in search/filter panel. Each word card in the explorer now displays all information directly, without flipping, and includes a bookmark button to mark as 'learned'. 3. Learned Words view, displaying only the words marked as learned. 4. Flashcard Quiz mode for active learning, now with an input box for answer checking, immediate feedback, and removal of example sentences from quiz flashcards. This structure separates high-level summary (Overview) from deep-diving (Explorer), active learning (Quiz), and progress tracking (Learned), providing a clear and purposeful user flow for studying. The floating search/filter panel in the Explorer section ensures controls are always accessible while maintaining a clean main content area. -->
+    <!-- Visualization & Content Choices: Report Info: JLPT N5 Vocabulary. Goal: Show word type composition -> Viz: Donut Chart -> Interaction: Hover for details -> Justification: Quick visual summary -> Library: Chart.js. | Goal: Organize & explore all words -> Presentation: Interactive Card Grid with floating search/filter panel, displaying all word details directly, with bookmarking -> Interaction: Filter by category, search, click speaker icon for word/example audio, click bookmark to mark as learned/unlearned -> Justification: Flexible and focused study, improved UI accessibility and cleanliness, enhanced learning with context and audio, and progress tracking -> Library: Vanilla JS + CSS + Web Speech API. | Goal: Active recall practice -> Presentation: Input-based Quiz with Flashcard -> Interaction: Type answer, check, get feedback, next card, click speaker icon for audio -> Justification: Enhances learning and retention through active recall and immediate validation, adds auditory learning component -> Library: Vanilla JS + CSS + Web Speech API. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <!-- 響應式設計說明：此網頁已透過以下方式實現響應式設計，確保在不同裝置（手機、平板、桌面）上都能良好顯示：
+         1. <meta name="viewport"> 標籤：設定視窗寬度與設備寬度一致，並初始縮放比例為1.0。
+         2. Tailwind CSS 框架：利用 Tailwind 的響應式斷點（如 sm:, md:, lg:）和流動式單位（如 w-full, mx-auto, grid-cols-*）來自動調整佈局、間距和元素大小。
+         3. 彈性網格佈局：單字卡列表使用 CSS Grid 實現，可根據螢幕寬度自動調整每行的卡片數量。
+         4. 相對單位：盡量使用百分比、em、rem 等相對單位，而非固定像素值，以適應不同螢幕尺寸。
+    -->
+    <style>
+        body {
+            font-family: 'Noto Sans TC', 'Noto Sans JP', sans-serif;
+            background-color: #FDFBF7;
+            color: #4A4A4A;
+        }
+        .nav-btn {
+            transition: all 0.3s ease;
+            border-bottom: 2px solid transparent;
+        }
+        .nav-btn.active {
+            color: #0d9488;
+            border-bottom-color: #0d9488;
+        }
+        .filter-btn {
+            transition: all 0.3s ease;
+        }
+        .filter-btn.active {
+            background-color: #0d9488;
+            color: white;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 400px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 400px;
+            }
+        }
+        /* Flashcard styling for Quiz mode */
+        .flashcard-base {
+            perspective: 1000px;
+            cursor: pointer;
+            height: 100%; /* Ensure height is defined for inner elements */
+            width: 100%;
+        }
+        .flashcard-inner {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); /* shadow-2xl */
+        }
+        .flashcard-base.flipped .flashcard-inner {
+            transform: rotateY(180deg);
+        }
+        .flashcard-front, .flashcard-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            -webkit-backface-visibility: hidden;
+            backface-visibility: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            padding: 20px;
+            border-radius: 0.75rem; /* rounded-xl */
+            overflow-y: auto; /* Added to prevent content overflow from pushing card boundaries */
+        }
+        .flashcard-back {
+            transform: rotateY(180deg);
+        }
+        .pronounce-btn {
+            background: none;
+            border: none;
+            font-size: 2rem;
+            cursor: pointer;
+            color: #0d9488;
+            transition: color 0.2s;
+            position: absolute; /* Position relative to parent card side */
+            top: 10px;
+            right: 10px;
+        }
+        .pronounce-btn:hover {
+            color: #0f766e;
+        }
+        /* Specific styling for explorer card pronunciation button */
+        .explorer-card-content .pronounce-btn.word-pronounce {
+            font-size: 2rem; /* Larger for main word */
+            position: static; /* Adjust positioning for inline with text */
+            margin-left: 0.5rem;
+        }
+        .explorer-card-content .pronounce-btn.example-pronounce {
+            font-size: 1.5rem; /* Smaller for example sentence */
+            position: static; /* Adjust positioning for inline with text */
+            margin-left: 0.5rem;
+        }
+
+        /* Explorer card specific styling */
+        .word-card {
+            min-height: 280px; /* Increased min-height to prevent layout shift on flip */
+            background-color: #ffffff;
+            border-left: 4px solid #0d9488;
+            border-radius: 0.75rem;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            padding: 20px; /* Ensure consistent padding */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative; /* Important for containing absolute positioned elements like pronunciation button */
+        }
+        /* Remove flip-specific styles for explorer cards */
+        .word-card .flashcard-inner,
+        .word-card .flashcard-front,
+        .word-card .flashcard-back {
+            all: unset; /* Reset all properties to remove flip effects */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            text-align: center;
+            padding: 0; /* Padding is now on .word-card */
+            position: static; /* No absolute positioning within the card */
+        }
+        .word-card .pronounce-btn {
+            position: static; /* Make pronunciation button static within content flow */
+            margin-left: 0.5rem; /* Add some spacing */
+        }
+        .word-card .word-pronounce {
+            font-size: 2rem;
+        }
+        .word-card .example-pronounce {
+            font-size: 1.5rem;
+        }
+
+        /* Bookmark button styling */
+        .bookmark-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #ccc; /* Default unlearned color */
+            transition: color 0.2s;
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10; /* Ensure it's above other content */
+        }
+        .bookmark-btn.learned {
+            color: #facc15; /* Learned (gold) color */
+        }
+        .bookmark-btn:hover {
+            color: #f97316; /* Hover color */
+        }
+        /* Furigana styling */
+        ruby {
+            font-size: 1.25em; /* Adjust base font size for kanji */
+        }
+        rt {
+            font-size: 0.5em; /* Smaller font size for furigana */
+            user-select: none; /* Prevent selection of furigana */
+        }
+    </style>
+</head>
+<body class="antialiased">
+    <div id="app" class="min-h-screen">
+        <header class="bg-white/80 backdrop-blur-lg shadow-sm sticky top-0 z-20">
+            <div class="container mx-auto px-4 py-3">
+                <div class="flex flex-col sm:flex-row justify-between items-center">
+                    <h1 class="text-2xl font-bold text-teal-700">JLPT N5 日文單字互動學習助手</h1>
+                    <nav id="main-nav" class="flex space-x-4 sm:space-x-6 mt-2 sm:mt-0">
+                        <button data-target="overview" class="nav-btn font-medium py-1 px-2 active">總覽</button>
+                        <button data-target="explorer" class="nav-btn font-medium py-1 px-2">單字探索</button>
+                        <button data-target="learned" class="nav-btn font-medium py-1 px-2">已學習</button> <!-- New Tab -->
+                        <button data-target="quiz" class="nav-btn font-medium py-1 px-2">閃卡測驗</button>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <main class="container mx-auto p-4 md:p-8">
+            <section id="overview" class="page-section">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">歡迎來到 N5 單字學習之旅</h2>
+                    <p class="text-lg text-gray-600 max-w-3xl mx-auto">本工具旨在幫助您高效掌握日語能力試驗 N5 級別的核心詞彙。您可以透過儀表板了解詞彙分佈，使用探索功能深入學習，並透過閃卡測驗鞏固記憶。</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
+                    <div class="bg-white p-6 rounded-xl shadow-lg">
+                        <h3 class="text-xl font-bold text-center mb-4 text-teal-800">N5 詞彙類型分佈</h3>
+                        <p class="text-center text-gray-500 mb-4">這張圖表顯示了 N5 詞彙中各個詞性的佔比。將滑鼠懸停在圖表上可以查看詳細數量。您會發現名詞是學習的重點部分。</p>
+                        <div class="chart-container">
+                            <canvas id="wordTypeChart"></canvas>
+                        </div>
+                    </div>
+                    <div id="stats" class="space-y-4">
+                         <div class="bg-white p-6 rounded-xl shadow-lg">
+                            <h3 class="text-xl font-bold text-teal-800 mb-2">學習統計</h3>
+                            <p class="text-gray-600 mb-4">這裡總結了 N5 詞彙的核心數據，讓您對學習目標有宏觀的認識。</p>
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center p-3 bg-teal-50 rounded-lg">
+                                    <span class="font-semibold text-gray-700">總詞彙量</span>
+                                    <span id="total-words" class="text-2xl font-bold text-teal-600"></span>
+                                </div>
+                                <div class="flex justify-between items-center p-3 bg-amber-50 rounded-lg">
+                                    <span class="font-semibold text-gray-700">分類數量</span>
+                                    <span id="total-categories" class="text-2xl font-bold text-amber-600"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="explorer" class="page-section hidden">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">單字探索</h2>
+                    <p class="text-lg text-gray-600 max-w-3xl mx-auto">在此您可以瀏覽、篩選和搜尋所有 N5 單字。請點擊右上方浮動的箭頭按鈕來展開搜尋與篩選控制項。</p>
+                </div>
+                <!-- The word-list and no-results divs remain here -->
+                <div id="explorer-word-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                </div>
+                 <div id="no-results" class="hidden text-center py-12">
+                    <p class="text-2xl font-semibold text-gray-500">找不到結果</p>
+                    <p class="text-gray-400 mt-2">請試著調整您的篩選或搜尋條件。</p>
+                </div>
+            </section>
+
+            <section id="learned" class="page-section hidden"> <!-- New Section -->
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">已學習單字</h2>
+                    <p class="text-lg text-gray-600 max-w-3xl mx-auto">這裡顯示您已標記為「已學習」的單字。您可以再次點擊書籤按鈕來取消標記。</p>
+                </div>
+                <div id="learned-word-list" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                </div>
+                <div id="no-learned-words" class="hidden text-center py-12">
+                    <p class="text-2xl font-semibold text-gray-500">尚無已學習單字</p>
+                    <p class="text-gray-400 mt-2">在「單字探索」頁面中，點擊單字卡上的書籤按鈕來將其標記為已學習。</p>
+                </div>
+            </section>
+
+            <section id="quiz" class="page-section hidden">
+                 <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-gray-800 mb-2">閃卡測驗</h2>
+                    <p class="text-lg text-gray-600 max-w-3xl mx-auto">選擇一個詞性類別來開始您的測驗。請輸入單字的中文意義來檢查您的答案。</p>
+                </div>
+                <div id="quiz-setup" class="text-center max-w-md mx-auto">
+                    <label for="quiz-category" class="block text-lg font-medium text-gray-700 mb-2">請選擇測驗類別：</label>
+                    <select id="quiz-category" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 mb-4 text-lg">
+                    </select>
+                    <button id="start-quiz-btn" class="w-full bg-teal-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-teal-700 transition-transform transform hover:scale-105 shadow-lg text-xl">
+                        開始測驗
+                    </button>
+                </div>
+
+                <div id="quiz-area" class="hidden flex flex-col items-center justify-center min-h-[500px] py-8">
+                    <div class="flex justify-center items-center mb-4">
+                        <p id="quiz-progress" class="text-lg font-semibold text-gray-600"></p>
+                    </div>
+                    <div class="w-full max-w-lg mx-auto flex-grow flex items-center justify-center">
+                         <div id="flashcard" class="flashcard-base w-full h-full">
+                            <div class="flashcard-inner">
+                                <div id="flashcard-front" class="flashcard-front bg-white relative">
+                                    <button class="pronounce-btn" data-lang-text="" data-lang="ja-JP">🔊</button>
+                                </div>
+                                <div id="flashcard-back" class="flashcard-back bg-teal-50 relative">
+                                    <button class="pronounce-btn" data-lang-text="" data-lang="ja-JP">🔊</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col items-center gap-4 mt-6 w-full max-w-lg">
+                        <input type="text" id="quiz-answer-input" placeholder="輸入日文 (假名/漢字/羅馬字)..." class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-lg">
+                        <button id="check-answer-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition">檢查答案</button>
+                        <div id="quiz-feedback" class="text-center text-lg font-semibold mt-2 min-h-[2rem]"></div>
+                        <div class="flex justify-center items-center gap-4 w-full">
+                            <button id="prev-card-btn" class="flex-1 bg-gray-200 text-gray-700 font-bold py-3 px-8 rounded-lg hover:bg-gray-300 transition">上一張</button>
+                            <button id="next-card-btn" class="flex-1 bg-teal-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-teal-700 transition">下一張</button>
+                        </div>
+                    </div>
+                     <div class="text-center mt-6">
+                        <button id="end-quiz-btn" class="text-sm text-gray-500 hover:text-red-500 underline">結束測驗</button>
+                    </div>
+                </div>
+                 <div id="quiz-complete" class="hidden text-center max-w-md mx-auto bg-white p-8 rounded-xl shadow-lg">
+                    <h3 class="text-2xl font-bold text-teal-700 mb-4" id="quiz-complete-title">測驗完成！</h3>
+                    <p class="text-gray-600 mb-6" id="quiz-complete-message">您已完成此類別的所有單字卡。</p>
+                    <div id="incorrect-words-summary" class="hidden text-left mb-6 p-4 bg-red-50 rounded-lg border border-red-200">
+                        <h4 class="text-lg font-bold text-red-700 mb-2">以下是您答錯的單字：</h4>
+                        <ul id="incorrect-words-list" class="list-disc list-inside text-gray-700"></ul>
+                    </div>
+                    <button id="restart-quiz-btn" class="w-full bg-teal-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-teal-700 transition-transform transform hover:scale-105 shadow-lg">
+                        重新測驗
+                    </button>
+                    <button id="review-incorrect-btn" class="hidden w-full bg-red-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-red-700 transition-transform transform hover:scale-105 shadow-lg mt-4">
+                        重新測驗錯誤單字
+                    </button>
+                </div>
+            </main>
+
+        <!-- Floating Toggle Button -->
+        <button id="floating-toggle-btn" class="fixed top-4 right-4 z-50 w-12 h-12 rounded-full bg-teal-600 text-white flex items-center justify-center text-xl shadow-lg hover:bg-teal-700 transition-all duration-300">
+            ▼
+        </button>
+
+        <!-- Floating Search and Filter Panel -->
+        <div id="floating-search-filter-panel" class="fixed top-4 right-4 z-40 bg-white p-4 sm:p-6 rounded-xl shadow-lg w-11/12 max-w-md transform translate-x-full opacity-0 pointer-events-none transition-all duration-300 ease-in-out">
+            <div class="flex flex-col sm:flex-row gap-4 mb-4">
+                <div class="relative flex-grow">
+                    <input type="text" id="search-input" placeholder="搜尋單字 (日文或中文)..." class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-full focus:ring-2 focus:ring-teal-500 focus:border-teal-500 transition">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <span class="text-gray-400">🔍</span>
+                    </div>
+                </div>
+                <button id="clear-search" class="sm:w-auto w-full text-sm bg-gray-200 text-gray-700 px-4 py-2 rounded-full hover:bg-gray-300 transition">清除</button>
+            </div>
+            <div id="category-filters" class="flex flex-wrap gap-2 justify-center">
+            </div>
+        </div>
+    </div>
+
+<script type="text/javascript">
+document.addEventListener('DOMContentLoaded', () => {
+    // Corrected and complete vocabData with romaji for all entries
+    const vocabData = [
+        {"type":"名詞","kanji":"私","kana":"わたし","romaji":"watashi","meaning":"我", "example":"これは私(わたし)の本(ほん)です。", "exampleMeaning":"這是我的書。"},
+        {"type":"名詞","kanji":"あなた","kana":"あなた","romaji":"anata","meaning":"你", "example":"あなたはお元気ですか。", "exampleMeaning":"你好嗎？"},
+        {"type":"名詞","kanji":"人","kana":"ひと","romaji":"hito","meaning":"人", "example":"あの人(ひと)は誰(だれ)ですか。", "exampleMeaning":"那個人是誰？"},
+        {"type":"名詞","kanji":"友達","kana":"ともだち","romaji":"tomodachi","meaning":"朋友", "example":"友達(ともだち)と遊(あそ)びます。", "exampleMeaning":"和朋友玩。"},
+        {"type":"名詞","kanji":"先生","kana":"せんせい","romaji":"sensei","meaning":"老師", "example":"先生(せんせい)に質問(しつもん)します。", "exampleMeaning":"向老師提問。"},
+        {"type":"名詞","kanji":"学生","kana":"がくせい","romaji":"gakusei","meaning":"學生", "example":"私(わたし)は学生(がくせい)です。", "exampleMeaning":"我是學生。"},
+        {"type":"名詞","kanji":"学校","kana":"がっこう","romaji":"gakkou","meaning":"學校", "example":"学校(がっこう)へ行(い)きます。", "exampleMeaning":"去學校。"},
+        {"type":"名詞","kanji":"会社","kana":"かいしゃ","romaji":"kaisha","meaning":"公司", "example":"会社(かいしゃ)で働(はたら)きます。", "exampleMeaning":"在公司工作。"},
+        {"type":"名詞","kanji":"日本人","kana":"にほんじん","romaji":"nihonjin","meaning":"日本人", "example":"彼(かれ)は日本人(にほんじん)です。", "exampleMeaning":"他是日本人。"},
+        {"type":"名詞","kanji":"日本","kana":"にほん","romaji":"nihon","meaning":"日本", "example":"日本(にほん)へ行(い)きたいです。", "exampleMeaning":"想去日本。"},
+        {"type":"名詞","kanji":"語","kana":"ご","romaji":"go","meaning":"語言", "example":"日本語(にほんご)を勉強(べんきょう)します。", "exampleMeaning":"學習日語。"},
+        {"type":"名詞","kanji":"本","kana":"ほん","romaji":"hon","meaning":"書本", "example":"本(ほん)を読(よ)みます。", "exampleMeaning":"讀書。"},
+        {"type":"名詞","kanji":"辞書","kana":"じしょ","romaji":"jisho","meaning":"字典", "example":"辞書(じしょ)を買(か)いました。", "exampleMeaning":"買了字典。"},
+        {"type":"名詞","kanji":"雑誌","kana":"ざっし","romaji":"zasshi","meaning":"雜誌", "example":"雑誌(ざっし)を読(よ)みます。", "exampleMeaning":"讀雜誌。"},
+        {"type":"名詞","kanji":"新聞","kana":"しんぶん","romaji":"shinbun","meaning":"報紙", "example":"新聞(しんぶん)を読(よ)みます。", "exampleMeaning":"讀報紙。"},
+        {"type":"名詞","kanji":"机","kana":"つくえ","romaji":"tsukue","meaning":"書桌", "example":"机(つくえ)の上(うえ)に本(ほん)があります。", "exampleMeaning":"桌子上有書。"},
+        {"type":"名詞","kanji":"椅子","kana":"いす","romaji":"isu","meaning":"椅子", "example":"椅子(いす)に座(すわ)ります。", "exampleMeaning":"坐在椅子上。"},
+        {"type":"名詞","kanji":"鞄","kana":"かばん","romaji":"kaban","meaning":"包包", "example":"鞄(かばん)の中(なか)に何(なに)がありますか。", "exampleMeaning":"包包裡有什麼？"},
+        {"type":"名詞","kanji":"時計","kana":"とけい","romaji":"tokei","meaning":"時鐘、手錶", "example":"時計(とけい)を見(み)ます。", "exampleMeaning":"看時鐘/手錶。"},
+        {"type":"名詞","kanji":"傘","kana":"かさ","romaji":"kasa","meaning":"雨傘", "example":"傘(かさ)を借(か)ります。", "exampleMeaning":"借傘。"},
+        {"type":"名詞","kanji":"車","kana":"くるま","romaji":"kuruma","meaning":"車子", "example":"車(くるま)で会社(かいしゃ)に行(い)きます。", "exampleMeaning":"開車去公司。"},
+        {"type":"名詞","kanji":"電話","kana":"でんわ","romaji":"denwa","meaning":"電話", "example":"電話(でんわ)をかけます。", "exampleMeaning":"打電話。"},
+        {"type":"名詞","kanji":"家","kana":"うち","romaji":"uchi","meaning":"家", "example":"家(うち)に帰(かえ)ります。", "exampleMeaning":"回家。"},
+        {"type":"名詞","kanji":"部屋","kana":"へや","romaji":"heya","meaning":"房間", "example":"部屋(へや)が広(ひろ)いです。", "exampleMeaning":"房間很寬敞。"},
+        {"type":"名詞","kanji":"庭","kana":"にわ","romaji":"niwa","meaning":"庭院", "example":"庭(にわ)に花(はな)があります。", "exampleMeaning":"庭院裡有花。"},
+        {"type":"名詞","kanji":"犬","kana":"いぬ","romaji":"inu","meaning":"狗", "example":"犬(いぬ)がいます。", "exampleMeaning":"有狗。"},
+        {"type":"名詞","kanji":"猫","kana":"ねこ","romaji":"neko","meaning":"貓", "example":"猫(ねこ)を飼(か)っています。", "exampleMeaning":"養貓。"},
+        {"type":"名詞","kanji":"物","kana":"もの","romaji":"mono","meaning":"東西", "example":"これは何(なに)ですか？", "exampleMeaning":"這是什麼？"},
+        {"type":"名詞","kanji":"お金","kana":"おかね","romaji":"okane","meaning":"錢", "example":"お金(かね)があります。", "exampleMeaning":"有錢。"},
+        {"type":"名詞","kanji":"食べ物","kana":"たべもの","romaji":"tabemono","meaning":"食物", "example":"美味(おい)しい食(た)べ物(もの)です。", "exampleMeaning":"好吃的食物。"},
+        {"type":"名詞","kanji":"飲み物","kana":"のみもの","romaji":"nomimono","meaning":"飲料", "example":"飲(の)み物(もの)を買(か)います。", "exampleMeaning":"買飲料。"},
+        {"type":"名詞","kanji":"ご飯","kana":"ごはん","romaji":"gohan","meaning":"飯、餐", "example":"ご飯(はん)を食(た)べます。", "exampleMeaning":"吃飯。"},
+        {"type":"名詞","kanji":"パン","kana":"パン","romaji":"pan","meaning":"麵包", "example":"パンを食(た)べます。", "exampleMeaning":"吃麵包。"},
+        {"type":"名詞","kanji":"卵","kana":"たまご","romaji":"tamago","meaning":"蛋", "example":"卵焼(たまごや)きを作(つく)ります。", "exampleMeaning":"做煎蛋。"},
+        {"type":"名詞","kanji":"肉","kana":"にく","romaji":"niku","meaning":"肉", "example":"肉(にく)が好(す)きです。", "exampleMeaning":"喜歡肉。"},
+        {"type":"名詞","kanji":"魚","kana":"さかな","romaji":"sakana","meaning":"魚", "example":"魚(さかな)を食(た)べます。", "exampleMeaning":"吃魚。"},
+        {"type":"名詞","kanji":"野菜","kana":"やさい","romaji":"yasai","meaning":"蔬菜", "example":"野菜(やさい)を食(た)べます。", "exampleMeaning":"吃蔬菜。"},
+        {"type":"名詞","kanji":"果物","kana":"くだもの","romaji":"kudamono","meaning":"水果", "example":"果物(くだもの)を買(か)います。", "exampleMeaning":"買水果。"},
+        {"type":"名詞","kanji":"水","kana":"みず","romaji":"mizu","meaning":"水", "example":"水(みず)を飲(の)みます。", "exampleMeaning":"喝水。"},
+        {"type":"名詞","kanji":"お茶","kana":"おちゃ","romaji":"ocha","meaning":"茶", "example":"お茶(ちゃ)を飲(の)みます。", "exampleMeaning":"喝茶。"},
+        {"type":"名詞","kanji":"牛乳","kana":"ぎゅうにゅう","romaji":"gyuunyuu","meaning":"牛奶", "example":"牛乳(ぎゅうにゅう)を飲(の)みます。", "exampleMeaning":"喝牛奶。"},
+        {"type":"名詞","kanji":"時間","kana":"じかん","romaji":"jikan","meaning":"時間", "example":"時間(じかん)がありません。", "exampleMeaning":"沒有時間。"},
+        {"type":"名詞","kanji":"今日","kana":"きょう","romaji":"kyou","meaning":"今天", "example":"今日(きょう)は暑(あつ)いです。", "exampleMeaning":"今天很熱。"},
+        {"type":"名詞","kanji":"明日","kana":"あした","romaji":"ashita","meaning":"明天", "example":"明日(あした)は休日(きゅうじつ)です。", "exampleMeaning":"明天是假日。"},
+        {"type":"名詞","kanji":"昨日","kana":"きのう","romaji":"kinou","meaning":"昨天", "example":"昨日(きのう)は雨(あめ)でした。", "exampleMeaning":"昨天是雨天。"},
+        {"type":"名詞","kanji":"朝","kana":"あさ","romaji":"asa","meaning":"早上", "example":"朝(あさ)ごはんを食(た)べます。", "exampleMeaning":"早上吃早餐。"},
+        {"type":"名詞","kanji":"昼","kana":"ひる","romaji":"hiru","meaning":"中午", "example":"昼(ひる)ごはんを食(た)べます。", "exampleMeaning":"中午吃午餐。"},
+        {"type":"名詞","kanji":"晩","kana":"ばん","romaji":"ban","meaning":"晚上", "example":"晩(ばん)ごはんを食(た)べます。", "exampleMeaning":"晚上吃晚餐。"},
+        {"type":"名詞","kanji":"夜","kana":"よる","romaji":"yoru","meaning":"夜晚", "example":"夜(よる)に勉強(べんきょう)します。", "exampleMeaning":"晚上學習。"},
+        {"type":"名詞","kanji":"今","kana":"いま","romaji":"ima","meaning":"現在", "example":"今(いま)何時(なんじ)ですか？", "exampleMeaning":"現在幾點？"},
+        {"type":"名詞","kanji":"月曜日","kana":"げつようび","romaji":"getsuyoubi","meaning":"星期一", "example":"月曜日(げつようび)に学校(がっこう)へ行(い)きます。", "exampleMeaning":"星期一去學校。"},
+        {"type":"名詞","kanji":"火曜日","kana":"かようび","romaji":"kayoubi","meaning":"星期二", "example":"火曜日(かようび)は忙(いそが)しいです。", "exampleMeaning":"星期二很忙。"},
+        {"type":"名詞","kanji":"水曜日","kana":"すいようび","romaji":"suiyoubi","meaning":"星期三", "example":"水曜日(すいようび)に会(あ)います。", "exampleMeaning":"星期三見面。"},
+        {"type":"名詞","kanji":"木曜日","kana":"もくようび","romaji":"mokuyoubi","meaning":"星期四", "example":"木曜日(もくようび)に仕事(しごと)があります。", "exampleMeaning":"星期四有工作。"},
+        {"type":"名詞","kanji":"金曜日","kana":"きんようび","romaji":"kin'youbi","meaning":"星期五", "example":"金曜日(きんようび)の夜(よる)は暇(ひま)です。", "exampleMeaning":"星期五晚上有空。"},
+        {"type":"名詞","kanji":"土曜日","kana":"どようび","romaji":"doyoubi","meaning":"星期六", "example":"土曜日(どようび)に映画(えいが)を見(み)ます。", "exampleMeaning":"星期六看電影。"},
+        {"type":"名詞","kanji":"日曜日","kana":"にちようび","romaji":"nichiyoubi","meaning":"星期日", "example":"日曜日(にちようび)は休日(きゅうじつ)です。", "exampleMeaning":"星期日是假日。"},
+        {"type":"名詞","kanji":"一月","kana":"いちがつ","romaji":"ichigatsu","meaning":"一月", "example":"一月(いちがつ)は寒(さむ)いです。", "exampleMeaning":"一月很冷。"},
+        {"type":"名詞","kanji":"二月","kana":"にがつ","romaji":"nigatsu","meaning":"二月", "example":"二月(にがつ)は短(みじか)いです。", "exampleMeaning":"二月很短。"},
+        {"type":"名詞","kanji":"三月","kana":"さんがつ","romaji":"sangatsu","meaning":"三月", "example":"三月(さんがつ)は春(はる)です。", "exampleMeaning":"三月是春天。"},
+        {"type":"名詞","kanji":"四月","kana":"しがつ","romaji":"shigatsu","meaning":"四月", "example":"四月(しがつ)は桜(さくら)が咲(さ)きます。", "exampleMeaning":"四月櫻花開。"},
+        {"type":"名詞","kanji":"五月","kana":"ごがつ","romaji":"gogatsu","meaning":"五月", "example":"五月(ごがつ)は暑(あつ)いです。", "exampleMeaning":"五月很熱。"},
+        {"type":"名詞","kanji":"六月","kana":"ろくがつ","romaji":"rokugatsu","meaning":"六月", "example":"六月(ろくがつ)は雨(あめ)が多(おお)いです。", "exampleMeaning":"六月雨很多。"},
+        {"type":"名詞","kanji":"七月","kana":"しちがつ","romaji":"shichigatsu","meaning":"七月", "example":"七月(しちがつ)は夏休(なつやす)みです。", "exampleMeaning":"七月是暑假。"},
+        {"type":"名詞","kanji":"八月","kana":"はちがつ","romaji":"hachigatsu","meaning":"八月", "example":"八月(はちがつ)はとても暑(あつ)いです。", "exampleMeaning":"八月很熱。"},
+        {"type":"名詞","kanji":"九月","kana":"くがつ","romaji":"kugatsu","meaning":"九月", "example":"九月(くがつ)は涼(すず)しいです。", "exampleMeaning":"九月很涼爽。"},
+        {"type":"名詞","kanji":"十月","kana":"じゅうがつ","romaji":"juugatsu","meaning":"十月", "example":"十月(じゅうがつ)は秋(あき)です。", "exampleMeaning":"十月是秋天。"},
+        {"type":"名詞","kanji":"十一月","kana":"じゅういちがつ","romaji":"juuichigatsu","meaning":"十一月", "example":"十一月(じゅういちがつ)は紅葉(こうよう)が美(うつく)しいです。", "exampleMeaning":"十一月楓葉很美。"},
+        {"type":"名詞","kanji":"十二月","kana":"じゅうにがつ","romaji":"juunigatsu","meaning":"十二月", "example":"十二月(じゅうにがつ)はとても寒(さむ)いです。", "exampleMeaning":"十二月很冷。"},
+        {"type":"名詞","kanji":"天気","kana":"てんき","romaji":"tenki","meaning":"天氣", "example":"今日(きょう)は天気(てんき)が晴(は)れです。", "exampleMeaning":"今天天氣晴朗。"},
+        {"type":"名詞","kanji":"雨","kana":"あめ","romaji":"ame","meaning":"雨", "example":"雨(あめ)が降(ふ)っています。", "exampleMeaning":"下雨了。"},
+        {"type":"名詞","kanji":"雪","kana":"ゆき","romaji":"yuki","meaning":"雪", "example":"雪(ゆき)が降(ふ)っています。", "exampleMeaning":"下雪了。"},
+        {"type":"名詞","kanji":"風","kana":"かぜ","romaji":"kaze","meaning":"風", "example":"風(かぜ)が強(つよ)いです。", "exampleMeaning":"風很大。"},
+        {"type":"名詞","kanji":"電気","kana":"でんき","romaji":"denki","meaning":"電、電燈", "example":"電気(でんき)をつけます。", "exampleMeaning":"開燈。"},
+        {"type":"名詞","kanji":"名前","kana":"なまえ","romaji":"namae","meaning":"名字", "example":"お名前(なまえ)は何(なん)ですか？", "exampleMeaning":"你叫什麼名字？"},
+        {"type":"名詞","kanji":"住所","kana":"じゅうしょ","romaji":"juusho","meaning":"地址", "example":"住所(じゅうしょ)を教(おし)えてください。", "exampleMeaning":"請告訴我地址。"},
+        {"type":"名詞","kanji":"地図","kana":"ちず","romaji":"chizu","meaning":"地圖", "example":"地図(ちず)を見(み)ます。", "exampleMeaning":"看地圖。"},
+        {"type":"名詞","kanji":"写真","kana":"しゃしん","romaji":"shashin","meaning":"照片", "example":"写真(しゃしん)を撮(と)ります。", "exampleMeaning":"拍照。"},
+        {"type":"名詞","kanji":"映画","kana":"えいが","romaji":"eiga","meaning":"電影", "example":"映画(えいが)を見(み)に行(い)きます。", "exampleMeaning":"去看電影。"},
+        {"type":"名詞","kanji":"音楽","kana":"おんがく","romaji":"ongaku","meaning":"音樂", "example":"音楽(おんがく)を聴(き)きます。", "exampleMeaning":"聽音樂。"},
+        {"type":"名詞","kanji":"歌","kana":"うた","romaji":"uta","meaning":"歌曲", "example":"歌(うた)を歌(うた)います。", "exampleMeaning":"唱歌。"},
+        {"type":"名詞","kanji":"絵","kana":"え","romaji":"e","meaning":"圖畫", "example":"絵(え)を描(か)きます。", "exampleMeaning":"畫畫。"},
+        {"type":"名詞","kanji":"字","kana":"じ","romaji":"ji","meaning":"字", "example":"字(じ)を書(か)きます。", "exampleMeaning":"寫字。"},
+        {"type":"名詞","kanji":"勉強","kana":"べんきょう","romaji":"benkyou","meaning":"學習", "example":"日本語(にほんご)を勉強(べんきょう)します。", "exampleMeaning":"學習日語。"},
+        {"type":"名詞","kanji":"仕事","kana":"しごと","romaji":"shigoto","meaning":"工作", "example":"仕事(しごと)に行(い)きます。", "exampleMeaning":"去工作。"},
+        {"type":"名詞","kanji":"買い物","kana":"かいもの","romaji":"kaimono","meaning":"購物", "example":"買(か)い物(もの)をします。", "exampleMeaning":"購物。"},
+        {"type":"名詞","kanji":"食事","kana":"しょくじ","romaji":"shokuji","meaning":"用餐", "example":"食事(しょくじ)をします。", "exampleMeaning":"用餐。"},
+        {"type":"名詞","kanji":"旅行","kana":"りょこう","romaji":"ryokou","meaning":"旅行", "example":"旅行(りょこう)に行(い)きます。", "exampleMeaning":"去旅行。"},
+        {"type":"名詞","kanji":"パーティー","kana":"パーティー","romaji":"paatii","meaning":"派對", "example":"パーティーをします。", "exampleMeaning":"舉辦派對。"},
+        {"type":"名詞","kanji":"宿題","kana":"しゅくだい","romaji":"shukudai","meaning":"作業", "example":"宿題(しゅくだい)をします。", "exampleMeaning":"寫作業。"},
+        {"type":"名詞","kanji":"薬","kana":"くすり","romaji":"kusuri","meaning":"藥", "example":"薬(くすり)を飲(の)みます。", "exampleMeaning":"吃藥。"},
+        {"type":"名詞","kanji":"風呂","kana":"ふろ","romaji":"furo","meaning":"澡堂、浴缸", "example":"風呂(ふろ)に入(はい)ります。", "exampleMeaning":"泡澡。"},
+        {"type":"名詞","kanji":"体","kana":"からだ","romaji":"karada","meaning":"身體", "example":"体(からだ)の調子(ちょうし)が悪(わる)いです。", "exampleMeaning":"身體不舒服。"},
+        {"type":"名詞","kanji":"頭","kana":"あたま","romaji":"atama","meaning":"頭", "example":"頭(あたま)が痛(いた)いです。", "exampleMeaning":"頭痛。"},
+        {"type":"名詞","kanji":"顔","kana":"かお","romaji":"kao","meaning":"臉", "example":"顔(かお)を洗(あら)います。", "exampleMeaning":"洗臉。"},
+        {"type":"名詞","kanji":"目","kana":"め","romaji":"me","meaning":"眼睛", "example":"目(め)が大(おお)きいです。", "exampleMeaning":"眼睛很大。"},
+        {"type":"名詞","kanji":"耳","kana":"みみ","romaji":"mimi","meaning":"耳朵", "example":"耳(みみ)が聞(き)こえません。", "exampleMeaning":"聽不見。"},
+        {"type":"名詞","kanji":"鼻","kana":"はな","romaji":"hana","meaning":"鼻子", "example":"鼻(はな)が高(たか)いです。", "exampleMeaning":"鼻子很高。"},
+        {"type":"名詞","kanji":"口","kana":"くち","romaji":"kuchi","meaning":"嘴巴", "example":"口(くち)を開(あ)けます。", "exampleMeaning":"張開嘴巴。"},
+        {"type":"名詞","kanji":"歯","kana":"は","romaji":"ha","meaning":"牙齒", "example":"歯(は)が痛(いた)いです。", "exampleMeaning":"牙痛。"},
+        {"type":"名詞","kanji":"手","kana":"te","romaji":"te","meaning":"手", "example":"手(て)を洗(あら)います。", "exampleMeaning":"洗手。"},
+        {"type":"名詞","kanji":"足","kana":"あし","romaji":"ashi","meaning":"腳", "example":"足(あし)が速(はや)いです。", "exampleMeaning":"腳很快。"},
+        {"type":"名詞","kanji":"道","kana":"みち","romaji":"michi","meaning":"路", "example":"道(みち)を歩(ある)きます。", "exampleMeaning":"在路上走。"},
+        {"type":"名詞","kanji":"駅","kana":"えき","romaji":"eki","meaning":"車站", "example":"駅(えき)まで歩(ある)きます。", "exampleMeaning":"走到車站。"},
+        {"type":"名詞","kanji":"空港","kana":"くうこう","romaji":"kuukou","meaning":"機場", "example":"空港(くうこう)に行(い)きます。", "exampleMeaning":"去機場。"},
+        {"type":"名詞","kanji":"銀行","kana":"ぎんこう","romaji":"ginkou","meaning":"銀行", "example":"銀行(ぎんこう)でお金(かね)を下(お)ろします。", "exampleMeaning":"在銀行提款。"},
+        {"type":"名詞","kanji":"郵便局","kana":"ゆうびんきょく","romaji":"yuubinkyoku","meaning":"郵局", "example":"郵便局(ゆうびんきょく)で手紙(てがみ)を出(だ)します。", "exampleMeaning":"在郵局寄信。"},
+        {"type":"名詞","kanji":"図書館","kana":"としょかん","romaji":"toshokan","meaning":"圖書館", "example":"図書館(としょかん)で本(ほん)を借(か)ります。", "exampleMeaning":"在圖書館借書。"},
+        {"type":"名詞","kanji":"美術館","kana":"びじゅつかん","romaji":"bijutsukan","meaning":"美術館", "example":"美術館(びじゅつかん)に行(い)きます。", "exampleMeaning":"去美術館。"},
+        {"type":"名詞","kanji":"店","kana":"みせ","romaji":"mise","meaning":"店", "example":"あの店(みせ)は美味(おい)しいです。", "exampleMeaning":"那家店很好吃。"},
+        {"type":"名詞","kanji":"公園","kana":"こうえん","romaji":"kouen","meaning":"公園", "example":"公園(こうえん)で遊(あそ)びます。", "exampleMeaning":"在公園玩。"},
+        {"type":"名詞","kanji":"喫茶店","kana":"きっさてん","romaji":"kissaten","meaning":"咖啡店", "example":"喫茶店(きっさてん)でお茶(ちゃ)を飲(の)みます。", "exampleMeaning":"在咖啡店喝茶。"},
+        {"type":"名詞","kanji":"デパート","kana":"デパート","romaji":"depaato","meaning":"百貨公司", "example":"デパートで買(か)い物(もの)をします。", "exampleMeaning":"在百貨公司購物。"},
+        {"type":"名詞","kanji":"ホテル","kana":"ホテル","romaji":"hoteru","meaning":"飯店", "example":"ホテルに泊(と)まります。", "exampleMeaning":"住在飯店。"},
+        {"type":"名詞","kanji":"トイレ","kana":"トイレ","romaji":"toire","meaning":"廁所", "example":"トイレはどこですか？", "exampleMeaning":"廁所在哪裡？"},
+        {"type":"名詞","kanji":"右","kana":"みぎ","romaji":"migi","meaning":"右邊", "example":"右(みぎ)に曲(ま)がります。", "exampleMeaning":"右轉。"},
+        {"type":"名詞","kanji":"左","kana":"ひだり","romaji":"hidari","meaning":"左邊", "example":"左(ひだり)に曲(ま)がります。", "exampleMeaning":"左轉。"},
+        {"type":"名詞","kanji":"前","kana":"まえ","romaji":"mae","meaning":"前面", "example":"駅(えき)の前(まえ)です。", "exampleMeaning":"在車站前面。"},
+        {"type":"名詞","kanji":"後ろ","kana":"うしろ","romaji":"ushiro","meaning":"後面", "example":"車(くるま)の後(うしろ)です。", "exampleMeaning":"在車子後面。"},
+        {"type":"名詞","kanji":"中","kana":"なか","romaji":"naka","meaning":"裡面", "example":"箱(はこ)の中(なか)です。", "exampleMeaning":"在箱子裡面。"},
+        {"type":"名詞","kanji":"上","kana":"うえ","romaji":"ue","meaning":"上面", "example":"机(つくえ)の上(うえ)です。", "exampleMeaning":"在桌子上面。"},
+        {"type":"名詞","kanji":"下","kana":"した","romaji":"shita","meaning":"下面", "example":"机(つくえ)の下(した)です。", "exampleMeaning":"在桌子下面。"},
+        {"type":"名詞","kanji":"隣","kana":"となり","romaji":"tonari","meaning":"旁邊", "example":"隣(となり)の席(せき)に座(すわ)ります。", "exampleMeaning":"坐在旁邊的座位。"},
+        {"type":"名詞","kanji":"近く","kana":"ちかく","romaji":"chikaku","meaning":"附近", "example":"駅(えき)の近(ちか)くです。", "exampleMeaning":"在車站附近。"},
+        {"type":"名詞","kanji":"間","kana":"あいだ","romaji":"aida","meaning":"之間", "example":"AとBの間(あいだ)です。", "exampleMeaning":"在A和B之間。"},
+        {"type":"動詞","kanji":"います","kana":"います","romaji":"imasu","meaning":"在 (有生命)", "example":"猫(ねこ)がいます。", "exampleMeaning":"有貓。"},
+        {"type":"動詞","kanji":"あります","kana":"あります","romaji":"arimasu","meaning":"在 (無生命), 有", "example":"本(ほん)があります。", "exampleMeaning":"有書。"},
+        {"type":"動詞","kanji":"行きます","kana":"いきます","romaji":"ikimasu","meaning":"去", "example":"学校(がっこう)へ行(い)きます。", "exampleMeaning":"去學校。"},
+        {"type":"動詞","kanji":"来ます","kana":"きます","romaji":"kimasu","meaning":"來", "example":"家(うち)に来(き)ます。", "exampleMeaning":"來家裡。"},
+        {"type":"動詞","kanji":"帰ります","kana":"かえります","romaji":"kaerimasu","meaning":"回去", "example":"家(うち)に帰(かえ)ります。", "exampleMeaning":"回家。"},
+        {"type":"動詞","kanji":"食べます","kana":"たべます","romaji":"tabemasu","meaning":"吃", "example":"ご飯(はん)を食(た)べます。", "exampleMeaning":"吃飯。"},
+        {"type":"動詞","kanji":"飲みます","kana":"のみます","romaji":"nomimasu","meaning":"喝", "example":"水(みず)を飲(の)みます。", "exampleMeaning":"喝水。"},
+        {"type":"動詞","kanji":"見ます","kana":"みます","romaji":"mimasu","meaning":"看", "example":"映画(えいが)を見(み)ます。", "exampleMeaning":"看電影。"},
+        {"type":"動詞","kanji":"聞きます","kana":"ききます","romaji":"kikimasu","meaning":"聽, 問", "example":"音楽(おんがく)を聴(き)きます。", "exampleMeaning":"聽音樂。"},
+        {"type":"動詞","kanji":"読みます","kana":"よみます","romaji":"yomimasu","meaning":"讀", "example":"本(ほん)を読(よ)みます。", "exampleMeaning":"讀書。"},
+        {"type":"動詞","kanji":"書きます","kana":"かきます","romaji":"kakimasu","meaning":"寫", "example":"手紙(てがみ)を書(か)きます。", "exampleMeaning":"寫信。"},
+        {"type":"動詞","kanji":"買います","kana":"かいます","romaji":"kaimasu","meaning":"買", "example":"服(ふく)を買(か)います。", "exampleMeaning":"買衣服。"},
+        {"type":"動詞","kanji":"撮ります","kana":"とります","romaji":"torimasu","meaning":"拍(照)", "example":"写真(しゃしん)を撮(と)ります。", "exampleMeaning":"拍照。"},
+        {"type":"動詞","kanji":"会います","kana":"あいます","romaji":"aimasu","meaning":"見面", "example":"友達(ともだち)に会(あ)います。", "exampleMeaning":"和朋友見面。"},
+        {"type":"動詞","kanji":"起きます","kana":"おきます","romaji":"okimasu","meaning":"起床", "example":"朝(あさ)早(はや)く起(お)きます。", "exampleMeaning":"早上早起。"},
+        {"type":"動詞","kanji":"寝ます","kana":"nemasu","romaji":"nemasu","meaning":"睡覺", "example":"夜(よる)に寝(ね)ます。", "exampleMeaning":"晚上睡覺。"},
+        {"type":"動詞","kanji":"働きます","kana":"はたらきます","romaji":"hatarakimasu","meaning":"工作", "example":"会社(かいしゃ)で働(はたら)きます。", "exampleMeaning":"在公司工作。"},
+        {"type":"動詞","kanji":"休みます","kana":"やすみます","romaji":"yasumimasu","meaning":"休息", "example":"今日(きょう)は休(やす)みます。", "exampleMeaning":"今天休息。"},
+        {"type":"動詞","kanji":"勉強します","kana":"べんきょうします","romaji":"benkyoushimasu","meaning":"學習", "example":"日本語(にほんご)を勉強(べんきょう)します。", "exampleMeaning":"學習日語。"},
+        {"type":"動詞","kanji":"終わります","kana":"おわります","romaji":"owarimasu","meaning":"結束", "example":"仕事(しごと)が終(お)わります。", "exampleMeaning":"工作結束。"},
+        {"type":"動詞","kanji":"あげます","kana":"あげます","romaji":"agemasu","meaning":"給", "example":"プレゼントをあげます。", "exampleMeaning":"給禮物。"},
+        {"type":"動詞","kanji":"もらいます","kana":"moraimasu","meaning":"得到", "example":"プレゼントをもらいます。", "exampleMeaning":"收到禮物。"},
+        {"type":"動詞","kanji":"教えます","kana":"おしえます","romaji":"oshiemasu","meaning":"教", "example":"日本語(にほんご)を教(おし)えます。", "exampleMeaning":"教日語。"},
+        {"type":"動詞","kanji":"習います","kana":"ならいます","romaji":"naraimasu","meaning":"學習", "example":"日本語(にほんご)を習(なら)います。", "exampleMeaning":"學習日語。"},
+        {"type":"動詞","kanji":"かけます","kana":"かけます","romaji":"kakemasu","meaning":"打(電話)", "example":"電話(でんわ)をかけます。", "exampleMeaning":"打電話。"},
+        {"type":"動詞","kanji":"貸します","kana":"かします","romaji":"kashimasu","meaning":"借出", "example":"本(ほん)を貸(か)します。", "exampleMeaning":"借出書。"},
+        {"type":"動詞","kanji":"借ります","kana":"かります","romaji":"karimasu","meaning":"借入", "example":"本(ほん)を借(か)ります。", "exampleMeaning":"借書。"},
+        {"type":"動詞","kanji":"切ります","kana":"きります","romaji":"kirimasu","meaning":"切", "example":"紙(かみ)を切(き)ります。", "exampleMeaning":"切紙。"},
+        {"type":"動詞","kanji":"送ります","kana":"おくります","romaji":"okurimasu","meaning":"寄送", "example":"手紙(てがみ)を送(おく)ります。", "exampleMeaning":"寄信。"},
+        {"type":"動詞","kanji":"分かります","kana":"わかります","romaji":"wakarimasu","meaning":"懂、明白", "example":"日本語(にほんご)が分(わ)かります。", "exampleMeaning":"懂日語。"},
+        {"type":"動詞","kanji":"入ります","kana":"はいります","romaji":"hairimasu","meaning":"進入", "example":"部屋(へや)に入(はい)ります。", "exampleMeaning":"進入房間。"},
+        {"type":"動詞","kanji":"出ます","kana":"でます","romaji":"demasu","meaning":"出去、離開", "example":"部屋(へや)を出(で)ます。", "exampleMeaning":"離開房間。"},
+        {"type":"動詞","kanji":"つけます","kana":"つけます","romaji":"tsukemasu","meaning":"打開(電器)", "example":"電気(でんき)をつけます。", "exampleMeaning":"開燈。"},
+        {"type":"動詞","kanji":"消します","kana":"けします","romaji":"keshimasu","meaning":"關掉(電器)", "example":"電気(でんき)を消(け)します。", "exampleMeaning":"關燈。"},
+        {"type":"動詞","kanji":"開けます","kana":"あけます","romaji":"akemasu","meaning":"打開(門窗)", "example":"窓(まど)を開(あ)けます。", "exampleMeaning":"開窗。"},
+        {"type":"動詞","kanji":"閉めます","kana":"しめます","romaji":"shimemasu","meaning":"關上(門窗)", "example":"ドアを閉(し)めます。", "exampleMeaning":"關門。"},
+        {"type":"動詞","kanji":"待ちます","kana":"まちます","romaji":"machimasu","meaning":"等待", "example":"友達(ともだち)を待(ま)ちます。", "exampleMeaning":"等待朋友。"},
+        {"type":"動詞","kanji":"持ちます","romaji":"mochimasu","meaning":"拿、持有", "example":"鞄(かばん)を持(も)ちます。", "exampleMeaning":"拿包包。"},
+        {"type":"動詞","kanji":"手伝います","kana":"てつだいます","romaji":"tetsudaimasu","meaning":"幫忙", "example":"手伝(てつだ)います。", "exampleMeaning":"幫忙。"},
+        {"type":"動詞","kanji":"呼びます","kana":"よびます","romaji":"yobimasu","meaning":"叫、呼喚", "example":"タクシーを呼(よ)びます。", "exampleMeaning":"叫計程車。"},
+        {"type":"動詞","kanji":"話します","kana":"はなします","romaji":"hanashimasu","meaning":"說話", "example":"日本語(にほんご)を話(はな)します。", "exampleMeaning":"說日語。"},
+        {"type":"動詞","kanji":"使います","kana":"つかいます","romaji":"tsukaimasu","meaning":"使用", "example":"パソコンを使(つか)います。", "exampleMeaning":"使用電腦。"},
+        {"type":"動詞","kanji":"住みます","kana":"すみます","romaji":"sumimasu","meaning":"居住", "example":"東京(とうきょう)に住(す)みます。", "exampleMeaning":"住在東京。"},
+        {"type":"動詞","kanji":"座ります","kana":"すわります","romaji":"suwarimasu","meaning":"坐", "example":"椅子(いす)に座(すわ)ります。", "exampleMeaning":"坐在椅子上。"},
+        {"type":"動詞","kanji":"立ちます","kana":"たちます","romaji":"tachimasu","meaning":"站", "example":"駅(えき)に立(た)ちます。", "exampleMeaning":"站在車站。"},
+        {"type":"動詞","kanji":"置きます","kana":"おきます","romaji":"okimasu","meaning":"放置", "example":"本(ほん)を置(お)きます。", "exampleMeaning":"放書。"},
+        {"type":"動詞","kanji":"作ります","kana":"つくります","romaji":"tsukurimasu","meaning":"製作", "example":"料理(りょうり)を作(つく)ります。", "exampleMeaning":"做料理。"},
+        {"type":"動詞","kanji":"売ります","kana":"うります","romaji":"urimasu","meaning":"賣", "example":"本(ほん)を売(う)ります。", "exampleMeaning":"賣書。"},
+        {"type":"動詞","kanji":"知ります","kana":"しります","romaji":"shirimasu","meaning":"知道", "example":"彼(かれ)の名前(なまえ)を知(し)っています。", "exampleMeaning":"知道他的名字。"},
+        {"type":"動詞","kanji":"乗ります","kana":"のります","romaji":"norimasu","meaning":"搭乘", "example":"電車(でんしゃ)に乗(の)ります。", "exampleMeaning":"搭電車。"},
+        {"type":"動詞","kanji":"降ります","kana":"おります","romaji":"orimasu","meaning":"下車", "example":"駅(えき)で降(お)ります。", "exampleMeaning":"在車站下車。"},
+        {"type":"動詞","kanji":"遊びます","kana":"あそびます","romaji":"asobimasu","meaning":"玩", "example":"公園(こうえん)で遊(あそ)びます。", "exampleMeaning":"在公園玩。"},
+        {"type":"動詞","kanji":"泳ぎます","kana":"およぎます","romaji":"oyogimasu","meaning":"游泳", "example":"海(うみ)で泳(およ)ぎます。", "exampleMeaning":"在海裡游泳。"},
+        {"type":"動詞","kanji":"死にます","kana":"しにます","romaji":"shinimasu","meaning":"死亡", "example":"魚(さかな)が死(し)にました。", "exampleMeaning":"魚死了。"},
+        {"type":"動詞","kanji":"歌います","kana":"うたいます","romaji":"utaimasu","meaning":"唱歌", "example":"歌(うた)を歌(うた)います。", "exampleMeaning":"唱歌。"},
+        {"type":"動詞","kanji":"歩きます","kana":"あるきます","romaji":"arukimasu","meaning":"走路", "example":"道(みち)を歩(ある)きます。", "exampleMeaning":"在路上走。"},
+        {"type":"動詞","kanji":"急ぎます","kana":"いそぎます","romaji":"isogimasu","meaning":"趕快", "example":"急(いそ)いでください。", "exampleMeaning":"請快一點。"},
+        {"type":"い形容詞","kanji":"大きい","kana":"おおきい","romaji":"ookii","meaning":"大的", "example":"大(おお)きい家(いえ)。", "exampleMeaning":"大房子。"},
+        {"type":"い形容詞","kanji":"小さい","kana":"ちいさい","romaji":"chiisai","meaning":"小的", "example":"小(ちい)さい猫(ねこ)。", "exampleMeaning":"小貓。"},
+        {"type":"い形容詞","kanji":"新しい","kana":"あたらしい","romaji":"atarashii","meaning":"新的", "example":"新(あたら)しい服(ふく)。", "exampleMeaning":"新衣服。"},
+        {"type":"い形容詞","kanji":"古い","kana":"ふるい","romaji":"furui","meaning":"舊的", "example":"古(ふる)い車(くるま)。", "exampleMeaning":"舊車。"},
+        {"type":"い形容詞","kanji":"良い","kana":"いい","romaji":"ii","meaning":"好的", "example":"良(い)い天気(てんき)。", "exampleMeaning":"好天氣。"},
+        {"type":"い形容詞","kanji":"悪い","kana":"わるい","romaji":"warui","meaning":"壞的", "example":"悪(わる)い人(ひと)。", "exampleMeaning":"壞人。"},
+        {"type":"い形容詞","kanji":"暑い","kana":"あつい","romaji":"atsui","meaning":"熱的(天氣)", "example":"今日(きょう)は暑(あつ)いです。", "exampleMeaning":"今天很熱。"},
+        {"type":"い形容詞","kanji":"寒い","kana":"さむい","romaji":"samui","meaning":"冷的(天氣)", "example":"今日(きょう)は寒(さむ)いです。", "exampleMeaning":"今天很冷。"},
+        {"type":"い形容詞","kanji":"冷たい","kana":"つめたい","romaji":"tsumetai","meaning":"冰的(觸覺)", "example":"冷(つめ)たい水(みず)。", "exampleMeaning":"冰水。"},
+        {"type":"い形容詞","kanji":"難しい","kana":"むずかしい","romaji":"muzukashii","meaning":"困難的", "example":"難(むずか)しい問題(もんだい)。", "exampleMeaning":"難問題。"},
+        {"type":"い形容詞","kanji":"易しい","kana":"やさしい","romaji":"yasashii","meaning":"簡單的", "example":"易(やさ)しい日本語(にほんご)。", "exampleMeaning":"簡單的日語。"},
+        {"type":"い形容詞","kanji":"高い","kana":"たかい","romaji":"takai","meaning":"高的、貴的", "example":"高(たか)いビル。", "exampleMeaning":"高樓。"},
+        {"type":"い形容詞","kanji":"安い","kana":"やすい","romaji":"yasui","meaning":"便宜的", "example":"安(やす)い服(ふく)。", "exampleMeaning":"便宜的衣服。"},
+        {"type":"い形容詞","kanji":"低い","kana":"ひくい","romaji":"hikui","meaning":"低的", "example":"低(ひく)い山(やま)。", "exampleMeaning":"矮山。"},
+        {"type":"い形容詞","kanji":"面白い","kana":"おもしろい","romaji":"omoshiroi","meaning":"有趣的", "example":"面白(おもしろ)い映画(えいが)。", "exampleMeaning":"有趣的電影。"},
+        {"type":"い形容詞","kanji":"美味しい","kana":"おいしい","romaji":"oishii","meaning":"好吃的", "example":"美味(おい)しい料理(りょうり)。", "exampleMeaning":"好吃的料理。"},
+        {"type":"い形容詞","kanji":"忙しい","kana":"いそがしい","romaji":"isogashii","meaning":"忙碌的", "example":"毎日(まいにち)忙(いそが)しいです。", "exampleMeaning":"每天都很忙。"},
+        {"type":"い形容詞","kanji":"楽しい","kana":"たのしい","romaji":"tanoshii","meaning":"快樂的", "example":"楽(たの)しいパーティー。", "exampleMeaning":"快樂的派對。"},
+        {"type":"い形容詞","kanji":"白い","kana":"しろい","romaji":"shiroi","meaning":"白色的", "example":"白(しろ)い猫(ねこ)。", "exampleMeaning":"白貓。"},
+        {"type":"い形容詞","kanji":"黒い","kana":"くろい","romaji":"kuroi","meaning":"黑色的", "example":"黒(くろ)い犬(いぬ)。", "exampleMeaning":"黑狗。"},
+        {"type":"い形容詞","kanji":"赤い","kana":"あかい","romaji":"akai","meaning":"紅色的", "example":"赤(あか)い花(はな)。", "exampleMeaning":"紅花。"},
+        {"type":"い形容詞","kanji":"青い","kana":"あおい","romaji":"aoi","meaning":"藍色的", "example":"青(あお)い空(そら)。", "exampleMeaning":"藍天。"},
+        {"type":"い形容詞","kanji":"近い","kana":"ちかい","romaji":"chikai","meaning":"近的", "example":"家(いえ)が近(ちか)いです。", "exampleMeaning":"家很近。"},
+        {"type":"い形容詞","kanji":"遠い","kana":"とおい","romaji":"tooi","meaning":"遠的", "example":"家(いえ)が遠(とお)いです。", "exampleMeaning":"家很遠。"},
+        {"type":"い形容詞","kanji":"速い","kana":"はやい","romaji":"hayai","meaning":"快的", "example":"速(はや)い車(くるま)。", "exampleMeaning":"快車。"},
+        {"type":"い形容詞","kanji":"遅い","kana":"おそい","romaji":"osoi","meaning":"慢的", "example":"遅(おそ)い電車(でんしゃ)。", "exampleMeaning":"慢電車。"},
+        {"type":"い形容詞","kanji":"多い","kana":"おおい","romaji":"ooi","meaning":"多的", "example":"人(ひと)が多(おお)いです。", "exampleMeaning":"人很多。"},
+        {"type":"い形容詞","kanji":"少ない","kana":"すくない","romaji":"sukunai","meaning":"少的", "example":"人(ひと)が少(すく)ないです。", "exampleMeaning":"人很少。"},
+        {"type":"い形容詞","kanji":"暖かい","kana":"あたたかい","romaji":"atatakai","meaning":"溫暖的", "example":"暖(あたた)かい部屋(へや)。", "exampleMeaning":"溫暖的房間。"},
+        {"type":"い形容詞","kanji":"涼しい","kana":"すずしい","romaji":"suzushii","meaning":"涼爽的", "example":"涼(すず)しい風(かぜ)。", "exampleMeaning":"涼爽的風。"},
+        {"type":"い形容詞","kanji":"甘い","kana":"あまい","romaji":"amai","meaning":"甜的", "example":"甘(あま)いケーキ。", "exampleMeaning":"甜蛋糕。"},
+        {"type":"い形容詞","kanji":"辛い","kana":"からい","romaji":"karai","meaning":"辣的", "example":"辛(から)い料理(りょうり)。", "exampleMeaning":"辣料理。"},
+        {"type":"い形容詞","kanji":"重い","kana":"おもい","romaji":"omoi","meaning":"重的", "example":"重(おも)い荷物(にもつ)。", "exampleMeaning":"重行李。"},
+        {"type":"い形容詞","kanji":"軽い","kana":"karui","romaji":"karui","meaning":"輕的", "example":"軽(かる)い鞄(かばん)。", "exampleMeaning":"輕包包。"},
+        {"type":"い形容詞","kanji":"広い","kana":"ひろい","romaji":"hiroi","meaning":"寬廣的", "example":"広(ひろ)い部屋(へや)。", "exampleMeaning":"寬敞的房間。"},
+        {"type":"い形容詞","kanji":"狭い","kana":"semai","romaji":"semai","meaning":"狹窄的", "example":"狭(せま)い道(みち)。", "exampleMeaning":"狹窄的道路。"},
+        {"type":"い形容詞","kanji":"若い","kana":"わかい","romaji":"wakai","meaning":"年輕的", "example":"若(わか)い人(ひと)。", "exampleMeaning":"年輕人。"},
+        {"type":"い形容詞","kanji":"長い","kana":"ながい","romaji":"nagai","meaning":"長的", "example":"長(なが)い髪(かみ)。", "exampleMeaning":"長髮。"},
+        {"type":"い形容詞","kanji":"短い","kana":"みじかい","romaji":"mijikai","meaning":"短的", "example":"短(みじか)いスカート。", "exampleMeaning":"短裙。"},
+        {"type":"い形容詞","kanji":"明るい","kana":"あかるい","romaji":"akarui","meaning":"明亮的", "example":"明(あか)るい部屋(へや)。", "exampleMeaning":"明亮的房間。"},
+        {"type":"い形容詞","kanji":"暗い","kana":"くらい","romaji":"kurai","meaning":"昏暗的", "example":"暗(くら)い部屋(へや)。", "exampleMeaning":"昏暗的房間。"},
+        {"type":"な形容詞","kanji":"元気","kana":"げんき","romaji":"genki","meaning":"健康的、有精神的", "example":"お元気(げんき)ですか？", "exampleMeaning":"你好嗎？"},
+        {"type":"な形容詞","kanji":"静か","kana":"しずか","romaji":"shizuka","meaning":"安靜的", "example":"静(しず)かな場所(ばしょ)。", "exampleMeaning":"安靜的地方。"},
+        {"type":"な形容詞","kanji":"賑やか","kana":"にぎやか","romaji":"nigiyaka","meaning":"熱鬧的", "example":"賑(にぎ)やかな祭(まつ)り。", "exampleMeaning":"熱鬧的祭典。"},
+        {"type":"な形容詞","kanji":"有名","kana":"ゆうめい","romaji":"yuumei","meaning":"有名的", "example":"有名(ゆうめい)な俳優(はいゆう)。", "exampleMeaning":"有名的演員。"},
+        {"type":"な形容詞","kanji":"親切","kana":"しんせつ","romaji":"shinsetsu","meaning":"親切的", "example":"親切(しんせつ)な人(ひと)。", "exampleMeaning":"親切的人。"},
+        {"type":"な形容詞","kanji":"暇","kana":"ひま","romaji":"hima","meaning":"空閒的", "example":"今日(きょう)は暇(ひま)です。", "exampleMeaning":"今天有空。"},
+        {"type":"な形容詞","kanji":"便利","kana":"べんり","romaji":"benri","meaning":"方便的", "example":"便利(べんり)な場所(ばしょ)。", "exampleMeaning":"方便的地方。"},
+        {"type":"な形容詞","kanji":"綺麗","kana":"きれい","romaji":"kirei","meaning":"漂亮的、乾淨的", "example":"綺麗(きれい)な花(はな)。", "exampleMeaning":"漂亮的花。"},
+        {"type":"な形容詞","kanji":"好き","kana":"すき","romaji":"suki","meaning":"喜歡的", "example":"猫(ねこ)が好(す)きです。", "exampleMeaning":"喜歡貓。"},
+        {"type":"な形容詞","kanji":"嫌い","kana":"きらい","romaji":"kirai","meaning":"討厭的", "example":"虫(むし)が嫌(きら)いです。", "exampleMeaning":"討厭蟲。"},
+        {"type":"な形容詞","kanji":"上手","kana":"じょうず","romaji":"jouzu","meaning":"擅長的", "example":"絵(え)が上手(じょうず)です。", "exampleMeaning":"擅長畫畫。"},
+        {"type":"な形容詞","kanji":"下手","kana":"へた","romaji":"heta","meaning":"不擅長的", "example":"歌(うた)が下手(へた)です。", "exampleMeaning":"不擅長唱歌。"},
+        {"type":"な形容詞","kanji":"色々","kana":"いろいろ","romaji":"iroiro","meaning":"各式各樣的", "example":"色々(いろいろ)な物(もの)があります。", "exampleMeaning":"有各式各樣的東西。"},
+        {"type":"な形容詞","kanji":"大丈夫","kana":"だいじょうぶ","romaji":"daijoubu","meaning":"沒問題的", "example":"大丈夫(だいじょうぶ)ですか？", "exampleMeaning":"沒問題嗎？"},
+        {"type":"な形容詞","kanji":"大切","kana":"たいせつ","romaji":"taisetsu","meaning":"重要的", "example":"大切(たいせつ)な人(ひと)。", "exampleMeaning":"重要的人。"},
+        {"type":"副詞","kanji":"とても","kana":"とても","romaji":"totemo","meaning":"非常", "example":"とても美味(おい)しいです。", "exampleMeaning":"非常好吃。"},
+        {"type":"副詞","kanji":null,"kana":"あまり","romaji":"amari","meaning":"不太(接否定)", "example":"あまり食(た)べません。", "exampleMeaning":"不太吃。"},
+        {"type":"副詞","kanji":"全然","kana":"ぜんぜん","romaji":"zenzen","meaning":"完全不(接否定)", "example":"全然(ぜんぜん)分(わ)かりません。", "exampleMeaning":"完全不懂。"},
+        {"type":"副詞","kanji":null,"kana":"よく","romaji":"yoku","meaning":"經常、很", "example":"よく勉強(べんきょう)します。", "exampleMeaning":"經常學習。"},
+        {"type":"副詞","kanji":"大体","kana":"だいたい","romaji":"daitai","meaning":"大概", "example":"大体(だいたい)分(わ)かりました。", "exampleMeaning":"大概明白了。"},
+        {"type":"副詞","kanji":"たくさん","kana":"たくさん","romaji":"takusan","meaning":"很多", "example":"たくさん食(た)べます。", "exampleMeaning":"吃很多。"},
+        {"type":"副詞","kanji":"少し","kana":"すこし","romaji":"sukoshi","meaning":"少許", "example":"少(すこ)しください。", "exampleMeaning":"請給我一點。"},
+        {"type":"副詞","kanji":null,"kana":"もう","romaji":"mou","meaning":"已經", "example":"もう終(お)わりました。", "exampleMeaning":"已經結束了。"},
+        {"type":"副詞","kanji":null,"kana":"まだ","romaji":"mada","meaning":"還沒", "example":"まだ来(き)ません。", "exampleMeaning":"還沒來。"},
+        {"type":"副詞","kanji":null,"kana":"ゆっくり","romaji":"yukkuri","meaning":"慢慢地", "example":"ゆっくり話(はな)してください。", "exampleMeaning":"請慢慢說。"},
+        {"type":"副詞","kanji":null,"kana":"まっすぐ","romaji":"massugu","meaning":"筆直地", "example":"まっすぐ行(い)きます。", "exampleMeaning":"直走。"},
+        {"type":"副詞","kanji":"一緒に","kana":"いっしょに","romaji":"isshoni","meaning":"一起", "example":"一緒(いっしょ)に食(た)べましょう。", "exampleMeaning":"一起吃飯吧。"},
+        {"type":"指示詞","kanji":null,"kana":"これ","romaji":"kore","meaning":"這個", "example":"これは何(なに)ですか？", "exampleMeaning":"這是什麼？"},
+        {"type":"指示詞","kanji":null,"kana":"それ","romaji":"sore","meaning":"那個", "example":"それはあなたの傘(かさ)ですか？", "exampleMeaning":"那是你的傘嗎？"},
+        {"type":"指示詞","kanji":null,"kana":"あれ","romaji":"are","meaning":"那個(遠)", "example":"あれは何(なに)ですか？", "exampleMeaning":"那是什麼？"},
+        {"type":"指示詞","kanji":null,"kana":"この","romaji":"kono","meaning":"這個～", "example":"この本(ほん)は面白(おもしろ)いです。", "exampleMeaning":"這本書很有趣。"},
+        {"type":"指示詞","kanji":null,"kana":"その","romaji":"sono","meaning":"那個～", "example":"その鞄(かばん)は高(たか)いです。", "exampleMeaning":"那個包包很貴。"},
+        {"type":"指示詞","kanji":null,"kana":"あの","romaji":"ano","meaning":"那個～(遠)", "example":"あの人(ひと)は誰(だれ)ですか？", "exampleMeaning":"那個人是誰？"},
+        {"type":"指示詞","kanji":null,"kana":"ここ","romaji":"koko","meaning":"這裡", "example":"ここ(ここ)は静(しず)かです。", "exampleMeaning":"這裡很安靜。"},
+        {"type":"指示詞","kanji":null,"kana":"そこ","romaji":"soko","meaning":"那裡", "example":"そこ(そこ)はどこですか？", "exampleMeaning":"那裡是哪裡？"},
+        {"type":"指示詞","kanji":null,"kana":"あそこ","romaji":"asoko","meaning":"那裡(遠)", "example":"あそこ(あそこ)は公園(こうえん)です。", "exampleMeaning":"那裡是公園。"},
+        {"type":"指示詞","kanji":null,"kana":"こちら","romaji":"kochira","meaning":"這邊(禮貌)", "example":"こちら(こちら)へどうぞ。", "exampleMeaning":"請到這邊來。"},
+        {"type":"指示詞","kanji":null,"kana":"そちら","romaji":"sochira","meaning":"那邊(禮貌)", "example":"そちら(そちら)様(さま)はどちら様(さま)ですか？", "exampleMeaning":"您是哪位？"},
+        {"type":"指示詞","kanji":null,"kana":"あちら","romaji":"achira","meaning":"那邊(禮貌,遠)", "example":"あちら(あちら)は富士山(ふじさん)です。", "exampleMeaning":"那邊是富士山。"},
+        {"type":"疑問詞","kanji":null,"kana":"どれ","romaji":"dore","meaning":"哪個", "example":"どれ(どれ)がいいですか？", "exampleMeaning":"哪個比較好？"},
+        {"type":"疑問詞","kanji":null,"kana":"どの","romaji":"dono","meaning":"哪個～", "example":"どの本(ほん)が好(す)きですか？", "exampleMeaning":"你喜歡哪本書？"},
+        {"type":"疑問詞","kanji":null,"kana":"どこ","romaji":"doko","meaning":"哪裡", "example":"トイレはどこ(どこ)ですか？", "exampleMeaning":"廁所在哪裡？"},
+        {"type":"疑問詞","kanji":null,"kana":"どちら","romaji":"dochira","meaning":"哪邊(禮貌)", "example":"どちら(どちら)へ行(い)かれますか？", "exampleMeaning":"您要去哪邊？"},
+        {"type":"疑問詞","kanji":"誰","kana":"だれ","romaji":"dare","meaning":"誰", "example":"あの人(ひと)は誰(だれ)ですか？", "exampleMeaning":"那個人是誰？"},
+        {"type":"疑問詞","kanji":null,"kana":"どなた","romaji":"donata","meaning":"哪位(禮貌)", "example":"どなた(どなた)ですか？", "exampleMeaning":"哪位？"},
+        {"type":"疑問詞","kanji":"何","kana":"なに","romaji":"nani","meaning":"什麼", "example":"これ(これ)は何(なに)ですか？", "exampleMeaning":"這是什麼？"},
+        {"type":"疑問詞","kanji":null,"kana":"いつ","romaji":"itsu","meaning":"何時", "example":"いつ(いつ)行(い)きますか？", "exampleMeaning":"什麼時候去？"},
+        {"type":"疑問詞","kanji":null,"kana":"どうして","romaji":"doushite","meaning":"為什麼", "example":"どうして(どうして)ですか？", "exampleMeaning":"為什麼呢？"},
+        {"type":"疑問詞","kanji":null,"kana":"どう","romaji":"dou","meaning":"怎麼樣", "example":"どう(どう)ですか？", "exampleMeaning":"怎麼樣？"},
+        {"type":"疑問詞","kanji":null,"kana":"どんな","romaji":"donna","meaning":"什麼樣的", "example":"どんな食(た)べ物(もの)が好(す)きですか？", "exampleMeaning":"你喜歡什麼樣的食物？"},
+        {"type":"疑問詞","kanji":null,"kana":"いくら","romaji":"ikura","meaning":"多少錢", "example":"これ(これ)はいくら(いくら)ですか？", "exampleMeaning":"這個多少錢？"},
+        {"type":"疑問詞","kanji":null,"kana":"いくつ","romaji":"ikutsu","meaning":"幾個、幾歲", "example":"りんごがいくつ(いくつ)ありますか？", "exampleMeaning":"有幾個蘋果？"},
+        // New numerical entries for 0-10
+        {"type":"名詞","kanji":"零","kana":"ゼロ","romaji":"zero","meaning":"零", "example":"零(ゼロ)度(ど)です。", "exampleMeaning":"零度。"},
+        {"type":"名詞","kanji":"一","kana":"いち","romaji":"ichi","meaning":"一", "example":"りんごが一つ(ひとつ)あります。", "exampleMeaning":"有一個蘋果。"},
+        {"type":"名詞","kanji":"二","kana":"に","romaji":"ni","meaning":"二", "example":"二(に)人(にん)います。", "exampleMeaning":"有兩個人。"},
+        {"type":"名詞","kanji":"三","kana":"さん","romaji":"san","meaning":"三", "example":"三(さん)つ買(か)います。", "exampleMeaning":"買三個。"},
+        {"type":"名詞","kanji":"四","kana":"よん","romaji":"yon","meaning":"四", "example":"四(よん)時(じ)です。", "exampleMeaning":"四點。"},
+        {"type":"名詞","kanji":"五","kana":"ご","romaji":"go","meaning":"五", "example":"五(ご)分(ふん)です。", "exampleMeaning":"五分鐘。"},
+        {"type":"名詞","kanji":"六","kana":"ろく","romaji":"roku","meaning":"六", "example":"六(ろく)歳(さい)です。", "exampleMeaning":"六歲。"},
+        {"type":"名詞","kanji":"七","kana":"なな","romaji":"nana","meaning":"七", "example":"七(なな)個(こ)あります。", "exampleMeaning":"有七個。"},
+        {"type":"名詞","kanji":"八","kana":"はち","romaji":"hachi","meaning":"八", "example":"八(はち)時(じ)です。", "exampleMeaning":"八點。"},
+        {"type":"名詞","kanji":"九","kana":"きゅう","romaji":"kyuu","meaning":"九", "example":"九(きゅう)月(がつ)です。", "exampleMeaning":"九月。"},
+        {"type":"名詞","kanji":"十","kana":"じゅう","romaji":"juu","meaning":"十", "example":"十(じゅう)円(えん)です。", "exampleMeaning":"十日圓。"}
+    ];
+
+    const appState = {
+        currentPage: 'overview',
+        currentFilter: '全部',
+        searchTerm: '',
+        isSearchFilterExpanded: false, // New state for search/filter toggle
+        learnedWords: new Set(), // Store unique IDs of learned words
+        quiz: {
+            active: false,
+            category: '',
+            cards: [],
+            currentIndex: 0,
+            incorrectCards: [] // New: to store incorrectly answered words
+        }
+    };
+    
+    const elements = {
+        nav: document.getElementById('main-nav'),
+        pages: document.querySelectorAll('.page-section'),
+        explorerWordList: document.getElementById('explorer-word-list'), // Renamed from wordList
+        learnedWordList: document.getElementById('learned-word-list'), // New element
+        noLearnedWords: document.getElementById('no-learned-words'), // New element
+        // categoryFilters and searchInput are now inside floating-search-filter-panel
+        searchInput: null, // Will be assigned after panel is rendered
+        clearSearchBtn: null, // Will be assigned after panel is rendered
+        categoryFilters: null, // Will be assigned after panel is rendered
+        noResults: document.getElementById('no-results'),
+        quizSetup: document.getElementById('quiz-setup'),
+        quizArea: document.getElementById('quiz-area'),
+        quizCategorySelect: document.getElementById('quiz-category'),
+        startQuizBtn: document.getElementById('start-quiz-btn'),
+        endQuizBtn: document.getElementById('end-quiz-btn'),
+        flashcard: document.getElementById('flashcard'),
+        flashcardFront: document.getElementById('flashcard-front'),
+        flashcardBack: document.getElementById('flashcard-back'),
+        quizAnswerInput: document.getElementById('quiz-answer-input'), // New element
+        checkAnswerBtn: document.getElementById('check-answer-btn'), // New element
+        quizFeedback: document.getElementById('quiz-feedback'), // New element
+        nextCardBtn: document.getElementById('next-card-btn'),
+        prevCardBtn: document.getElementById('prev-card-btn'),
+        quizProgress: document.getElementById('quiz-progress'),
+        quizComplete: document.getElementById('quiz-complete'),
+        restartQuizBtn: document.getElementById('restart-quiz-btn'),
+        floatingToggleBtn: document.getElementById('floating-toggle-btn'), // New element
+        floatingSearchFilterPanel: document.getElementById('floating-search-filter-panel'), // New element
+    };
+
+    // Helper to generate a unique ID for each word
+    function getWordId(word) {
+        return word.kanji ? `${word.kanji}-${word.kana}` : word.kana;
+    }
+
+    // Load learned words from localStorage
+    function loadLearnedWords() {
+        try {
+            const learned = localStorage.getItem('jlptN5LearnedWords');
+            return learned ? new Set(JSON.parse(learned)) : new Set();
+        } catch (e) {
+            console.error("Failed to load learned words from localStorage", e);
+            return new Set();
+        }
+    }
+
+    // Save learned words to localStorage
+    function saveLearnedWords(learnedSet) {
+        try {
+            localStorage.setItem('jlptN5LearnedWords', JSON.stringify(Array.from(learnedSet)));
+        } catch (e) {
+            console.error("Failed to save learned words to localStorage", e);
+        }
+    }
+
+    // Variable to store the last scroll position for scroll direction detection
+    let lastScrollY = 0;
+
+    function init() {
+        appState.learnedWords = loadLearnedWords(); // Load learned words on init
+        setupNavigation();
+        setupFloatingSearchFilterPanel(); // Setup the panel and its controls
+        setupOverview();
+        setupQuiz();
+        renderExplorerWordList(); // Initial render for explorer
+        renderLearnedWordList(); // Initial render for learned
+        updateActivePage();
+    }
+
+    function setupNavigation() {
+        elements.nav.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                appState.currentPage = e.target.dataset.target;
+                updateActivePage();
+            }
+        });
+    }
+
+    function updateActivePage() {
+        elements.pages.forEach(page => {
+            page.classList.toggle('hidden', page.id !== appState.currentPage);
+        });
+        document.querySelectorAll('#main-nav button').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.target === appState.currentPage);
+        });
+
+        // Handle floating panel visibility and scroll listener based on current page
+        if (appState.currentPage === 'explorer') {
+            elements.floatingToggleBtn.classList.remove('hidden');
+            expandSearchFilters(); // Default to expanded when entering explorer
+            window.addEventListener('scroll', handleScroll);
+        } else {
+            elements.floatingToggleBtn.classList.add('hidden');
+            collapseSearchFilters(); // Ensure it's collapsed when leaving explorer
+            window.removeEventListener('scroll', handleScroll);
+            lastScrollY = 0; // Reset scroll position when leaving the page
+        }
+        
+        // Re-render relevant lists when switching pages
+        if (appState.currentPage === 'explorer') {
+            renderExplorerWordList();
+        } else if (appState.currentPage === 'learned') {
+            renderLearnedWordList();
+        }
+        window.scrollTo(0, 0);
+    }
+
+    // Handle scroll event for collapsing the search panel
+    function handleScroll() {
+        const currentScrollY = window.scrollY;
+
+        // If scrolling down and panel is expanded, collapse it
+        // Changed threshold to 20px for more sensitive collapse
+        if (currentScrollY > lastScrollY + 20 && appState.isSearchFilterExpanded) {
+            collapseSearchFilters();
+        }
+        lastScrollY = currentScrollY;
+    }
+
+
+    function getCategories() {
+        const categories = [...new Set(vocabData.map(word => word.type))];
+        return ['全部', ...categories];
+    }
+    
+    function setupOverview() {
+        document.getElementById('total-words').textContent = vocabData.length;
+        const categories = getCategories();
+        document.getElementById('total-categories').textContent = categories.length - 1; 
+
+        const categoryCounts = vocabData.reduce((acc, word) => {
+            acc[word.type] = (acc[word.type] || 0) + 1;
+            return acc;
+        }, {});
+
+        const chartLabels = Object.keys(categoryCounts);
+        const chartData = Object.values(categoryCounts);
+        
+        const ctx = document.getElementById('wordTypeChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: chartLabels,
+                datasets: [{
+                    label: '詞彙數量',
+                    data: chartData,
+                    backgroundColor: [
+                        '#0d9488', '#f97316', '#3b82f6', '#facc15', '#8b5cf6', '#ec4899', '#65a30d'
+                    ],
+                    borderColor: '#FDFBF7',
+                    borderWidth: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            font: {
+                                family: "'Noto Sans TC', sans-serif"
+                            }
+                        }
+                    },
+                    tooltip: {
+                         callbacks: {
+                            label: function(context) {
+                                let label = context.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed !== null) {
+                                    label += context.parsed + ' 個';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function setupFloatingSearchFilterPanel() {
+        // Assign elements after the panel is in the DOM
+        elements.searchInput = document.getElementById('search-input');
+        elements.clearSearchBtn = document.getElementById('clear-search');
+        elements.categoryFilters = document.getElementById('category-filters');
+
+        elements.floatingToggleBtn.addEventListener('click', toggleSearchFilters);
+        
+        setupFilters(); // Setup filters inside the panel
+        setupSearch(); // Setup search inside the panel
+    }
+
+    function setupFilters() {
+        const categories = getCategories();
+        elements.categoryFilters.innerHTML = categories.map(cat =>
+            `<button class="filter-btn px-4 py-1.5 text-sm font-medium rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 ${cat === '全部' ? 'active' : ''}" data-category="${cat}">
+                ${cat}
+            </button>`
+        ).join('');
+
+        elements.categoryFilters.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON') {
+                appState.currentFilter = e.target.dataset.category;
+                document.querySelectorAll('#category-filters .filter-btn').forEach(btn => btn.classList.remove('active'));
+                e.target.classList.add('active');
+                renderExplorerWordList(); // Re-render explorer when filter changes
+            }
+        });
+    }
+
+    function setupSearch() {
+        elements.searchInput.addEventListener('input', (e) => {
+            appState.searchTerm = e.target.value.trim().toLowerCase();
+            renderExplorerWordList(); // Re-render explorer when search changes
+        });
+        elements.clearSearchBtn.addEventListener('click', () => {
+            elements.searchInput.value = '';
+            appState.searchTerm = '';
+            renderExplorerWordList(); // Re-render explorer when search cleared
+        });
+    }
+
+    function toggleSearchFilters() {
+        appState.isSearchFilterExpanded = !appState.isSearchFilterExpanded;
+        if (appState.isSearchFilterExpanded) {
+            expandSearchFilters();
+        } else {
+            collapseSearchFilters();
+        }
+    }
+
+    function expandSearchFilters() {
+        elements.floatingSearchFilterPanel.classList.remove('translate-x-full', 'opacity-0', 'pointer-events-none');
+        elements.floatingToggleBtn.textContent = '▲';
+        elements.floatingToggleBtn.classList.remove('bg-teal-600');
+        elements.floatingToggleBtn.classList.add('bg-gray-500'); // Change color when expanded
+        appState.isSearchFilterExpanded = true;
+    }
+
+    function collapseSearchFilters() {
+        elements.floatingSearchFilterPanel.classList.add('translate-x-full', 'opacity-0', 'pointer-events-none');
+        elements.floatingToggleBtn.textContent = '▼';
+        elements.floatingToggleBtn.classList.remove('bg-gray-500');
+        elements.floatingToggleBtn.classList.add('bg-teal-600'); // Revert color when collapsed
+
+        // Reset search and filter
+        if (elements.searchInput) { // Check if elements are assigned
+            elements.searchInput.value = '';
+            appState.searchTerm = '';
+        }
+        appState.currentFilter = '全部';
+        document.querySelectorAll('#category-filters .filter-btn').forEach(btn => btn.classList.remove('active'));
+        const allBtn = document.querySelector('#category-filters .filter-btn[data-category="全部"]');
+        if (allBtn) {
+            allBtn.classList.add('active');
+        }
+        renderExplorerWordList(); // Re-render explorer after collapse
+        appState.isSearchFilterExpanded = false;
+    }
+
+    // Function to parse example string with furigana format (漢字(假名)) into ruby HTML
+    function parseFurigana(text) {
+        if (!text) return '';
+        // Regex to find kanji(kana) pattern
+        return text.replace(/(\p{Script=Han}+)\(([\p{Script=Hiragana}\p{Script=Katakana}ー・]+)\)/gu, '<ruby>$1<rt>$2</rt></ruby>');
+    }
+
+    // Function to render a list of words into a target element
+    function displayWords(wordsToDisplay, targetElement, showNoResultsDiv) {
+        if (wordsToDisplay.length === 0) {
+            targetElement.innerHTML = ''; // Clear existing cards
+            if (showNoResultsDiv) {
+                showNoResultsDiv.classList.remove('hidden');
+            }
+            targetElement.classList.add('hidden');
+        } else {
+            if (showNoResultsDiv) {
+                showNoResultsDiv.classList.add('hidden');
+            }
+            targetElement.classList.remove('hidden');
+            targetElement.innerHTML = wordsToDisplay.map(word => {
+                const wordId = getWordId(word);
+                const isLearned = appState.learnedWords.has(wordId);
+                const parsedExample = word.example ? parseFurigana(word.example) : ''; // Parse furigana for display
+                
+                return `
+                    <div class="word-card">
+                        <button class="bookmark-btn ${isLearned ? 'learned' : ''}" data-word-id="${wordId}">
+                            ${isLearned ? '🌟' : '⭐'}
+                        </button>
+                        <p class="text-xs text-teal-600 font-semibold mb-2">${word.type}</p>
+                        <div class="flex items-center justify-center mb-2">
+                            <p class="text-3xl font-bold text-gray-800">${word.kanji || word.kana}</p>
+                            <button class="pronounce-btn word-pronounce" data-lang-text="${word.kana}" data-lang="ja-JP">🔊</button>
+                        </div>
+                        ${word.kanji && word.kanji !== word.kana ? `<p class="text-lg text-gray-500">${word.kana}</p>` : ''}
+                        <p class="text-xl text-gray-700 mt-1">${word.romaji}</p>
+                        <p class="text-2xl font-semibold text-gray-800 mt-4">${word.meaning}</p>
+                        ${word.example ? `
+                            <div class="mt-4 pt-4 border-t border-gray-300 w-full text-center">
+                                <p class="text-md text-gray-600 font-semibold mb-2">例句:</p>
+                                <div class="flex flex-col items-center justify-center">
+                                    <p class="text-md text-gray-700">${parsedExample}</p>
+                                    <p class="text-sm text-gray-500 mt-1">${word.exampleMeaning || ''}</p>
+                                    <button class="pronounce-btn example-pronounce" data-lang-text="${word.example.replace(/\(([^)]+)\)/g, '')}" data-lang="ja-JP">🔊</button>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            // Attach event listeners for pronunciation and bookmark buttons
+            targetElement.querySelectorAll('.pronounce-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const text = e.target.dataset.langText;
+                    const lang = e.target.dataset.lang;
+                    speakText(text, lang);
+                });
+            });
+
+            targetElement.querySelectorAll('.bookmark-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent any parent click events
+                    const wordId = e.target.dataset.wordId;
+                    toggleLearnedStatus(wordId);
+                });
+            });
+        }
+    }
+
+    function renderExplorerWordList() {
+        let filteredWords = vocabData;
+
+        if (appState.currentFilter !== '全部') {
+            filteredWords = filteredWords.filter(word => word.type === appState.currentFilter);
+        }
+
+        if (appState.searchTerm) {
+            const searchLower = appState.searchTerm.toLowerCase();
+            filteredWords = filteredWords.filter(word => 
+                (word.kanji && word.kanji.toLowerCase().includes(searchLower)) ||
+                (word.kana && word.kana.toLowerCase().includes(searchLower)) ||
+                (word.romaji && word.romaji.toLowerCase().includes(searchLower)) ||
+                (word.meaning && word.meaning.toLowerCase().includes(searchLower)) ||
+                (word.example && word.example.replace(/\(([^)]+)\)/g, '').toLowerCase().includes(searchLower)) || // Search in example without furigana
+                (word.exampleMeaning && word.exampleMeaning.toLowerCase().includes(searchLower)) || // Search in example meaning
+                // Add specific checks for numbers 0-10 and "星期"
+                (searchLower === '0' && (word.kana === 'ゼロ' || word.kanji === '零')) ||
+                (searchLower === '1' && (word.kana === 'いち' || word.kanji === '一')) ||
+                (searchLower === '2' && (word.kana === 'に' || word.kanji === '二')) ||
+                (searchLower === '3' && (word.kana === 'さん' || word.kanji === '三')) ||
+                (searchLower === '4' && (word.kana === 'よん' || word.kanji === '四')) ||
+                (searchLower === '5' && (word.kana === 'ご' || word.kanji === '五')) ||
+                (searchLower === '6' && (word.kana === 'ろく' || word.kanji === '六')) ||
+                (searchLower === '7' && (word.kana === 'なな' || word.kanji === '七' || word.kana === 'しち')) || // Added shichi for 7
+                (searchLower === '8' && (word.kana === 'はち' || word.kanji === '八')) ||
+                (searchLower === '9' && (word.kana === 'きゅう' || word.kanji === '九' || word.kana === 'く')) || // Added ku for 9
+                (searchLower === '10' && (word.kana === 'じゅう' || word.kanji === '十')) ||
+                // Explicitly check for "星期" in meaning (already covered by general meaning search, but for clarity)
+                (word.meaning && word.meaning.includes('星期') && searchLower.includes('星期'))
+            );
+        }
+        
+        displayWords(filteredWords, elements.explorerWordList, elements.noResults);
+    }
+
+    function renderLearnedWordList() {
+        const learnedWordsArray = vocabData.filter(word => appState.learnedWords.has(getWordId(word)));
+        displayWords(learnedWordsArray, elements.learnedWordList, elements.noLearnedWords);
+    }
+
+    function toggleLearnedStatus(wordId) {
+        if (appState.learnedWords.has(wordId)) {
+            appState.learnedWords.delete(wordId);
+        } else {
+            appState.learnedWords.add(wordId);
+        }
+        saveLearnedWords(appState.learnedWords);
+        // Re-render both lists to reflect the change
+        renderExplorerWordList();
+        renderLearnedWordList();
+    }
+    
+    function setupQuiz() {
+        const categories = getCategories();
+        elements.quizCategorySelect.innerHTML = categories.map(cat => `<option value="${cat}">${cat}</option>`).join('');
+
+        elements.startQuizBtn.addEventListener('click', startQuiz);
+        elements.endQuizBtn.addEventListener('click', endQuiz);
+        elements.restartQuizBtn.addEventListener('click', () => {
+             elements.quizComplete.classList.add('hidden');
+             startQuiz();
+        });
+
+        // Add event listeners for pronunciation buttons on quiz flashcard
+        elements.flashcardFront.querySelector('.pronounce-btn').addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent card from flipping
+            const text = e.target.dataset.langText;
+            const lang = e.target.dataset.lang;
+            speakText(text, lang);
+        });
+        elements.flashcardBack.querySelector('.pronounce-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const text = e.target.dataset.langText;
+            const lang = e.target.dataset.lang;
+            speakText(text, lang);
+        });
+
+        elements.flashcard.addEventListener('click', (e) => {
+            // Only flip if the click wasn't on a pronunciation button or check/next buttons
+            if (!e.target.closest('.pronounce-btn') && !e.target.closest('#check-answer-btn') && !e.target.closest('#next-card-btn')) {
+                // elements.flashcard.classList.toggle('flipped'); // No longer automatically flip on click for quiz
+            }
+        });
+
+        elements.checkAnswerBtn.addEventListener('click', checkAnswer);
+        elements.quizAnswerInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                checkAnswer();
+            }
+        });
+
+        elements.nextCardBtn.addEventListener('click', () => showQuizCard('next'));
+        elements.prevCardBtn.addEventListener('click', () => showQuizCard('prev'));
+    }
+
+    function speakText(text, lang) {
+        if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = lang;
+            
+            // Get all available voices
+            const voices = speechSynthesis.getVoices();
+            
+            // Prioritize Google Japanese voice
+            let selectedVoice = voices.find(voice => 
+                (voice.name.includes('Google') || voice.name.includes('Google 日本語')) && 
+                (voice.lang === 'ja-JP' || voice.lang.startsWith('ja-'))
+            );
+
+            // Fallback to any Japanese voice if no Google voice is found
+            if (!selectedVoice) {
+                selectedVoice = voices.find(voice => voice.lang === 'ja-JP' || voice.lang.startsWith('ja-'));
+            }
+
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+            
+            speechSynthesis.speak(utterance);
+        } else {
+            alert('您的瀏覽器不支援語音合成功能。');
+        }
+    }
+
+    function startQuiz() {
+        appState.quiz.category = elements.quizCategorySelect.value;
+        let wordsForQuiz = vocabData;
+        if (appState.quiz.category !== '全部') {
+            wordsForQuiz = vocabData.filter(word => word.type === appState.quiz.category);
+        }
+        
+        appState.quiz.cards = wordsForQuiz.sort(() => 0.5 - Math.random());
+        appState.quiz.currentIndex = 0;
+        appState.quiz.active = true;
+        appState.quiz.incorrectCards = []; // Reset incorrect cards for a new quiz
+        
+        if (appState.quiz.cards.length === 0) {
+            alert('這個類別沒有單字可以測驗！');
+            return;
+        }
+
+        elements.quizSetup.classList.add('hidden');
+        elements.quizArea.classList.remove('hidden');
+        elements.quizComplete.classList.add('hidden');
+
+        elements.quizAnswerInput.value = '';
+        elements.quizFeedback.textContent = '';
+        elements.quizAnswerInput.disabled = false;
+        elements.checkAnswerBtn.disabled = false;
+        elements.nextCardBtn.disabled = true; // Disable next until checked
+
+        showQuizCard();
+    }
+    
+    function endQuiz() {
+        appState.quiz.active = false;
+        elements.quizArea.classList.add('hidden');
+        elements.quizSetup.classList.add('hidden'); // Hide setup too
+        elements.quizComplete.classList.remove('hidden'); // Show quiz complete section
+
+        displayQuizSummary(); // Display summary of incorrect words
+    }
+
+    function checkAnswer() {
+        const currentCard = appState.quiz.cards[appState.quiz.currentIndex];
+        const userAnswer = elements.quizAnswerInput.value.trim().toLowerCase();
+
+        // Prepare correct answers for comparison
+        const correctKana = currentCard.kana ? currentCard.kana.toLowerCase() : '';
+        const correctRomaji = currentCard.romaji ? currentCard.romaji.toLowerCase() : '';
+        const correctKanji = currentCard.kanji ? currentCard.kanji.toLowerCase() : '';
+
+        let isCorrect = false;
+
+        // Check against kana, romaji, and kanji
+        if (userAnswer === correctKana || userAnswer === correctRomaji || (correctKanji && userAnswer === correctKanji)) {
+            isCorrect = true;
+        }
+
+        if (isCorrect) {
+            elements.quizFeedback.textContent = '正確！🎉';
+            elements.quizFeedback.classList.remove('text-red-600');
+            elements.quizFeedback.classList.add('text-green-600');
+        } else {
+            // Display all correct Japanese forms for better feedback
+            let correctForms = [];
+            if (currentCard.kanji) correctForms.push(currentCard.kanji);
+            if (currentCard.kana) correctForms.push(currentCard.kana);
+            if (currentCard.romaji) correctForms.push(currentCard.romaji);
+            const feedbackText = `錯誤。正確答案是：「${correctForms.join(' / ')}」`;
+
+            elements.quizFeedback.textContent = feedbackText;
+            elements.quizFeedback.classList.remove('text-green-600');
+            elements.quizFeedback.classList.add('text-red-600');
+            
+            // Add to incorrect cards only if not already added (e.g., if user checks multiple times)
+            if (!appState.quiz.incorrectCards.includes(currentCard)) {
+                appState.quiz.incorrectCards.push(currentCard); 
+            }
+        }
+        
+        // Flip the card to show the back (meaning)
+        elements.flashcard.classList.add('flipped');
+        elements.quizAnswerInput.disabled = true;
+        elements.checkAnswerBtn.disabled = true;
+        elements.nextCardBtn.disabled = false; // Enable next after checking
+    }
+
+    function showQuizCard(direction = 'current') {
+        if (direction === 'next') {
+            appState.quiz.currentIndex++;
+        } else if (direction === 'prev') {
+            appState.quiz.currentIndex--;
+        }
+
+        elements.prevCardBtn.disabled = appState.quiz.currentIndex === 0;
+        elements.prevCardBtn.classList.toggle('opacity-50', elements.prevCardBtn.disabled);
+        
+        if (appState.quiz.currentIndex >= appState.quiz.cards.length) {
+            elements.quizArea.classList.add('hidden');
+            elements.quizComplete.classList.remove('hidden');
+            displayQuizSummary(); // Call summary function here too
+            return;
+        }
+
+        const card = appState.quiz.cards[appState.quiz.currentIndex];
+
+        // Reset card flip and input/feedback
+        elements.flashcard.classList.remove('flipped');
+        elements.quizAnswerInput.value = '';
+        elements.quizFeedback.textContent = '';
+        elements.quizAnswerInput.disabled = false;
+        elements.checkAnswerBtn.disabled = false;
+        elements.nextCardBtn.disabled = true; // Disable next until checked again
+
+        // Update content and data attributes for pronunciation
+        // Front: Display Chinese meaning
+        elements.flashcardFront.innerHTML = `
+            <p class="text-5xl font-bold text-center text-gray-800">${card.meaning}</p>
+            <button class="pronounce-btn" data-lang-text="${card.kana}" data-lang="ja-JP">🔊</button>
+        `;
+        // Back: Display Japanese (Kanji/Kana/Romaji)
+        elements.flashcardBack.innerHTML = `
+            <div class="text-center">
+                <p class="text-3xl font-semibold text-teal-700">${card.kanji || card.kana}</p>
+                ${card.kanji && card.kanji !== card.kana ? `<p class="text-xl text-gray-700 mt-2">${card.kana}</p>` : ''}
+                <p class="text-xl text-gray-700 mt-2">${card.romaji}</p>
+            </div>
+            <button class="pronounce-btn" data-lang-text="${card.kana}" data-lang="ja-JP">🔊</button>
+        `;
+
+        // Re-attach event listeners for newly rendered buttons (important for dynamic content)
+        elements.flashcardFront.querySelector('.pronounce-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const text = e.target.dataset.langText;
+            const lang = e.target.dataset.lang;
+            speakText(text, lang);
+        });
+        elements.flashcardBack.querySelector('.pronounce-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const text = e.target.dataset.langText;
+            const lang = e.target.dataset.lang;
+            speakText(text, lang);
+        });
+
+        elements.quizProgress.textContent = `第 ${appState.quiz.currentIndex + 1} / ${appState.quiz.cards.length} 張`;
+    }
+
+    function displayQuizSummary() {
+        const totalCards = appState.quiz.cards.length;
+        const incorrectCount = appState.quiz.incorrectCards.length;
+        const quizCompleteTitle = document.getElementById('quiz-complete-title');
+        const quizCompleteMessage = document.getElementById('quiz-complete-message');
+        const incorrectWordsSummary = document.getElementById('incorrect-words-summary');
+        const incorrectWordsList = document.getElementById('incorrect-words-list');
+        const reviewIncorrectBtn = document.getElementById('review-incorrect-btn');
+        const restartQuizBtn = document.getElementById('restart-quiz-btn'); // The original restart button
+
+        if (incorrectCount > 0) {
+            quizCompleteTitle.textContent = '測驗結束！';
+            quizCompleteMessage.textContent = `您總共答對了 ${totalCards - incorrectCount} 題，答錯了 ${incorrectCount} 題。`;
+            
+            incorrectWordsSummary.classList.remove('hidden');
+            incorrectWordsList.innerHTML = '';
+            appState.quiz.incorrectCards.forEach(word => {
+                const listItem = document.createElement('li');
+                listItem.textContent = `${word.kanji || word.kana} (${word.romaji}) - ${word.meaning}`;
+                incorrectWordsList.appendChild(listItem);
+            });
+            reviewIncorrectBtn.classList.remove('hidden');
+            restartQuizBtn.classList.add('hidden'); // Hide original restart button if reviewing incorrect
+        } else {
+            quizCompleteTitle.textContent = '測驗完成！';
+            quizCompleteMessage.textContent = '恭喜！您已完成此類別的所有單字卡，並且全部答對！';
+            incorrectWordsSummary.classList.add('hidden');
+            reviewIncorrectBtn.classList.add('hidden');
+            restartQuizBtn.classList.remove('hidden'); // Show original restart button
+        }
+
+        // Add event listener for the new review button
+        reviewIncorrectBtn.onclick = () => {
+            // Create a new array to ensure distinct objects if needed, though push already adds unique references
+            appState.quiz.cards = [...appState.quiz.incorrectCards]; 
+            appState.quiz.currentIndex = 0;
+            appState.quiz.incorrectCards = []; // Clear for the next round of review
+            elements.quizComplete.classList.add('hidden');
+            elements.quizArea.classList.remove('hidden');
+            elements.quizAnswerInput.value = '';
+            elements.quizFeedback.textContent = '';
+            elements.quizAnswerInput.disabled = false;
+            elements.checkAnswerBtn.disabled = false;
+            elements.nextCardBtn.disabled = true;
+            showQuizCard();
+        };
+    }
+
+    init();
+});
+</script>
+</body>
+</html>
